@@ -9,7 +9,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/iam v1.28.0
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.49.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.45.0
-	github.com/aws/aws-sdk-go-v2/service/sts v1.26.5
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/spf13/cobra v1.10.2
@@ -30,6 +29,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.16.4 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.18.5 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.21.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sts v1.26.5 // indirect
 	github.com/aws/smithy-go v1.20.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
