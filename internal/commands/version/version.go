@@ -10,7 +10,7 @@ var (
 	// GitCommit is set via -ldflags during build
 	GitCommit = "unknown"
 	// Version is the semantic version
-	Version = "0.1.0"
+	Version = "dev"
 )
 
 func NewVersionCommand() *cobra.Command {

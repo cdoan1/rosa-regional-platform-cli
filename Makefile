@@ -4,8 +4,8 @@ BINARY_NAME=rosactl
 BUILD_DIR=./bin
 INSTALL_DIR=/usr/local/bin
 GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-# Get version from latest git tag, fallback to 0.1.1 if no tags exist
-VERSION=$(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.1.1")
+# Get version from latest git tag, fallback to 0.1.0 if no tags exist
+VERSION=$(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.1.0")
 LDFLAGS=-ldflags "-X github.com/openshift-online/rosa-regional-platform-cli/internal/commands/version.GitCommit=$(GIT_COMMIT) -X github.com/openshift-online/rosa-regional-platform-cli/internal/commands/version.Version=$(VERSION)"
 
 all: fmt vet lint test build

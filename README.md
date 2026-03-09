@@ -2,7 +2,7 @@
 
 A command-line tool for managing AWS Lambda functions and S3-backed OIDC (OpenID Connect) identity providers.
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)
+![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
 
 ## Features
 
