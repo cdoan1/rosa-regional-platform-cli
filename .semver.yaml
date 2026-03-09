@@ -1,0 +1,31 @@
+# go-semver-release configuration
+# Documentation: https://github.com/s0ders/go-semver-release
+
+# Branch configuration
+branches:
+  - name: main
+
+# Commit message rules for version bumping
+# Based on Conventional Commits specification
+rules:
+  # Minor version bump (new features)
+  minor:
+    - "feat"
+
+  # Patch version bump (bug fixes, improvements)
+  patch:
+    - "fix"
+    - "perf"
+    - "refactor"
+    - "chore"
+    - "docs"
+    - "test"
+    - "build"
+    - "ci"
+
+# Git tag configuration
+tag_prefix: "v"  # Tags will be v0.1.0, v0.1.1, etc.
+
+# Git author for release tags
+git_name: "rosactl Release Bot"
+git_email: "noreply@rosactl.io"
