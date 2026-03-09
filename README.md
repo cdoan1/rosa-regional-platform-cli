@@ -1,6 +1,8 @@
 # rosactl
 
-A command-line tool for managing AWS Lambda functions and S3-backed OIDC (OpenID Connect) identity providers.
+A command-line tool for ROSA Regional Platform
+
+* Used to managing AWS Lambda functions and S3-backed OIDC (OpenID Connect) identity providers.
 
 ![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
 
