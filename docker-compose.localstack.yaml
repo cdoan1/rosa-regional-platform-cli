@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  localstack:
+    image: localstack/localstack:3.0
+    container_name: rosa-cli-localstack
+    ports:
+      - "4566:4566"  # LocalStack gateway
+      - "4510-4559:4510-4559"  # External service port range
+    environment:
+      # Services to enable
+      - SERVICES=cloudformation,iam,ec2,route53,lambda,ecr,s3
+      # Disable signature checking (easier for testing)
+      - SKIP_SIGNATURE_VALIDATION=1
+      # Enable debug output
+      - DEBUG=1
+      # Persist data between restarts (optional)
+      - PERSISTENCE=0
+      # AWS default region
+      - AWS_DEFAULT_REGION=us-east-1
+      # Docker host for Lambda container execution
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      # Lambda executor (docker-reuse for performance)
+      - LAMBDA_EXECUTOR=docker-reuse
+      # Lambda Docker network
+      - LAMBDA_DOCKER_NETWORK=rosa-cli_rosa-network
+      # Remove Lambda containers after execution
+      - LAMBDA_REMOVE_CONTAINERS=true
+      # Disable CORS checks
+      - DISABLE_CORS_CHECKS=1
+      # Enable eager service loading
+      - EAGER_SERVICE_LOADING=1
+      # Skip S3 validation for faster operations
+      - S3_SKIP_VALIDATION=1
+    volumes:
+      # Mount Docker/Podman socket so LocalStack can run Lambda containers
+      # Default: Podman socket for local development (/run/user/1000/podman/podman.sock)
+      # CI: Set DOCKER_SOCK=/var/run/docker.sock to use Docker socket
+      # Note: Update UID (1000) if your user ID is different (run: id -u)
+      - ${DOCKER_SOCK:-/run/user/1000/podman/podman.sock}:/var/run/docker.sock:Z
+      # Persist LocalStack data (optional)
+      - ./tmp/localstack:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - rosa-network
+    # Run as root to access Podman socket
+    user: "0"
+    privileged: true
+
+networks:
+  rosa-network:
+    name: rosa-cli_rosa-network
+    driver: bridge

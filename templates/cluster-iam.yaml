@@ -1,0 +1,433 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ROSA Regional Platform - Cluster IAM Resources (OIDC Provider + Roles)'
+
+Parameters:
+  ClusterName:
+    Type: String
+    Description: 'Name of the hosted cluster'
+    AllowedPattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
+    ConstraintDescription: 'Must be lowercase alphanumeric with hyphens'
+
+  OIDCIssuerURL:
+    Type: String
+    Description: 'OIDC issuer URL from Management Cluster (e.g., https://d1234.cloudfront.net/my-cluster)'
+    AllowedPattern: '^https://.*'
+    ConstraintDescription: 'Must start with https://'
+
+  OIDCIssuerDomain:
+    Type: String
+    Description: 'OIDC issuer domain without https:// (e.g., d1234.cloudfront.net/my-cluster)'
+    AllowedPattern: '^[^:]+.*'
+    ConstraintDescription: 'Must not contain protocol prefix'
+
+  OIDCThumbprint:
+    Type: String
+    Description: 'TLS certificate thumbprint of the OIDC issuer (SHA-1 fingerprint)'
+    AllowedPattern: '^[a-f0-9]{40}$'
+    ConstraintDescription: 'Must be a 40-character hex string'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Cluster Configuration'
+        Parameters:
+          - ClusterName
+      - Label:
+          default: 'OIDC Configuration'
+        Parameters:
+          - OIDCIssuerURL
+          - OIDCIssuerDomain
+          - OIDCThumbprint
+
+Resources:
+  # IAM OIDC Provider
+  OIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: !Ref OIDCIssuerURL
+      ClientIdList:
+        - openshift
+      ThumbprintList:
+        - !Ref OIDCThumbprint
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  # Ingress Operator Role
+  IngressRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-ingress'
+      Description: 'Manages AWS ELBs/NLBs for OpenShift routes'
+      AssumeRolePolicyDocument:
+        Fn::Sub:
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "${OIDCProviderArn}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDCIssuerDomain}:sub": "system:serviceaccount:openshift-ingress-operator:ingress-operator",
+                    "${OIDCIssuerDomain}:aud": "openshift"
+                  }
+                }
+              }]
+            }
+          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
+            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/ROSAIngressOperatorPolicy
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  # Cloud Controller Manager Role
+  CloudControllerManagerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-cloud-controller-manager'
+      Description: 'Manages load balancers and node lifecycle'
+      AssumeRolePolicyDocument:
+        Fn::Sub:
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "${OIDCProviderArn}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDCIssuerDomain}:sub": "system:serviceaccount:kube-system:kube-controller-manager",
+                    "${OIDCIssuerDomain}:aud": "openshift"
+                  }
+                }
+              }]
+            }
+          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
+            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/ROSAKubeControllerPolicy
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  # EBS CSI Driver Role
+  EBSCSIRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-ebs-csi'
+      Description: 'Creates and attaches EBS volumes'
+      AssumeRolePolicyDocument:
+        Fn::Sub:
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "${OIDCProviderArn}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDCIssuerDomain}:sub": "system:serviceaccount:openshift-cluster-csi-drivers:aws-ebs-csi-driver-controller-sa",
+                    "${OIDCIssuerDomain}:aud": "openshift"
+                  }
+                }
+              }]
+            }
+          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
+            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/ROSAAmazonEBSCSIDriverOperatorPolicy
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  # Image Registry Role
+  ImageRegistryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-image-registry'
+      Description: 'S3 access for the internal container image registry'
+      AssumeRolePolicyDocument:
+        Fn::Sub:
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "${OIDCProviderArn}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDCIssuerDomain}:sub": "system:serviceaccount:openshift-image-registry:cluster-image-registry-operator",
+                    "${OIDCIssuerDomain}:aud": "openshift"
+                  }
+                }
+              }]
+            }
+          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
+            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/ROSAImageRegistryOperatorPolicy
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  # Network Config Controller Role
+  NetworkConfigRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-network-config'
+      Description: 'Manages ENIs and cloud networking configuration'
+      AssumeRolePolicyDocument:
+        Fn::Sub:
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "${OIDCProviderArn}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDCIssuerDomain}:sub": "system:serviceaccount:openshift-cloud-network-config-controller:cloud-credentials",
+                    "${OIDCIssuerDomain}:aud": "openshift"
+                  }
+                }
+              }]
+            }
+          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
+            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/ROSACloudNetworkConfigOperatorPolicy
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  # Control Plane Operator Role
+  ControlPlaneOperatorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-control-plane-operator'
+      Description: 'Control plane operator managing hosted cluster lifecycle'
+      AssumeRolePolicyDocument:
+        Fn::Sub:
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "${OIDCProviderArn}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDCIssuerDomain}:sub": "system:serviceaccount:kube-system:control-plane-operator",
+                    "${OIDCIssuerDomain}:aud": "openshift"
+                  }
+                }
+              }]
+            }
+          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
+            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/ROSAControlPlaneOperatorPolicy
+      Policies:
+        - PolicyName: !Sub '${ClusterName}-cpo-supplemental'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: VpcEndpointServiceDiscovery
+                Effect: Allow
+                Action:
+                  - ec2:DescribeVpcEndpointServices
+                  - ec2:DescribeSubnets
+                Resource: '*'
+              - Sid: Route53ZoneLookup
+                Effect: Allow
+                Action:
+                  - route53:GetHostedZone
+                  - route53:ListHostedZonesByName
+                Resource: '*'
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  # Node Pool Management Role
+  NodePoolManagementRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-node-pool-management'
+      Description: 'Node pool management for EC2 instance lifecycle'
+      AssumeRolePolicyDocument:
+        Fn::Sub:
+          - |
+            {
+              "Version": "2012-10-17",
+              "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                  "Federated": "${OIDCProviderArn}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                  "StringEquals": {
+                    "${OIDCIssuerDomain}:sub": "system:serviceaccount:kube-system:capa-controller-manager",
+                    "${OIDCIssuerDomain}:aud": "openshift"
+                  }
+                }
+              }]
+            }
+          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
+            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/ROSANodePoolManagementPolicy
+      Policies:
+        - PolicyName: !Sub '${ClusterName}-node-pool-supplemental'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: DescribeInstanceTypes
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstanceTypes
+                Resource: '*'
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  # Worker Node IAM Role
+  WorkerNodeRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ClusterName}-ROSA-Worker-Role'
+      Description: 'IAM role for hosted cluster worker node EC2 instances'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/ROSAWorkerInstancePolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  # Worker Node Instance Profile
+  WorkerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ClusterName}-ROSA-Worker-Role'
+      Roles:
+        - !Ref WorkerNodeRole
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+Outputs:
+  OIDCProviderArn:
+    Description: 'ARN of the IAM OIDC provider'
+    Value: !GetAtt OIDCProvider.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-OIDCProviderArn'
+
+  OIDCProviderURL:
+    Description: 'URL of the IAM OIDC provider'
+    Value: !Ref OIDCIssuerURL
+    Export:
+      Name: !Sub '${AWS::StackName}-OIDCProviderURL'
+
+  IngressRoleArn:
+    Description: 'IAM role ARN for the Ingress Operator'
+    Value: !GetAtt IngressRole.Arn
+
+  CloudControllerManagerRoleArn:
+    Description: 'IAM role ARN for the Cloud Controller Manager'
+    Value: !GetAtt CloudControllerManagerRole.Arn
+
+  EBSCSIRoleArn:
+    Description: 'IAM role ARN for the EBS CSI Driver'
+    Value: !GetAtt EBSCSIRole.Arn
+
+  ImageRegistryRoleArn:
+    Description: 'IAM role ARN for the Image Registry'
+    Value: !GetAtt ImageRegistryRole.Arn
+
+  NetworkConfigRoleArn:
+    Description: 'IAM role ARN for the Network Config Controller'
+    Value: !GetAtt NetworkConfigRole.Arn
+
+  ControlPlaneOperatorRoleArn:
+    Description: 'IAM role ARN for the Control Plane Operator'
+    Value: !GetAtt ControlPlaneOperatorRole.Arn
+
+  NodePoolManagementRoleArn:
+    Description: 'IAM role ARN for Node Pool Management'
+    Value: !GetAtt NodePoolManagementRole.Arn
+
+  WorkerRoleArn:
+    Description: 'IAM role ARN for worker node EC2 instances'
+    Value: !GetAtt WorkerNodeRole.Arn
+
+  WorkerInstanceProfileName:
+    Description: 'IAM instance profile name for worker node EC2 instances'
+    Value: !Ref WorkerInstanceProfile

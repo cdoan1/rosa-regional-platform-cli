@@ -2,390 +2,463 @@
 
 ## Overview
 
-`rosactl` is a command-line tool for the ROSA Regional HCP platform.
+`rosactl` is a command-line tool for managing AWS infrastructure for ROSA Regional HCP (Hosted Control Plane) clusters. It uses a **container-based Lambda + CloudFormation** approach to deploy cluster IAM resources in customer AWS accounts.
 
-* The cli manages AWS Lambda functions and S3-backed OIDC (OpenID Connect) identity providers. 
-* It simplifies the creation and management of ZIP-based Lambda functions with specialized handlers (default, OIDC issuer, OIDC deletion).
+## Architecture Principles
 
-## Architecture Diagram
+1. **Managed OIDC**: Uses Red Hat's CloudFront-backed OIDC issuer (not customer-hosted)
+2. **Declarative Infrastructure**: All IAM resources defined in CloudFormation templates
+3. **Container-Based Lambda**: Single Go binary runs in both CLI and Lambda modes
+4. **Transparency**: CloudFormation templates are auditable files in the repository
+5. **No Private Keys**: HyperShift operator manages RSA keys in Management Cluster
+
+## High-Level Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        CLI Interface                            │
-│                   (Cobra Command Router)                        │
-└────────────┬────────────────────────────┬──────────────────────┘
-             │                            │
-   ┌─────────▼────────┐        ┌─────────▼────────┐
-   │  Lambda Commands │        │  OIDC Commands   │
-   │  - create        │        │  - create        │
-   │  - delete        │        │  - delete        │
-   │  - invoke        │        │  - list          │
-   │  - list          │        └─────────┬────────┘
-   │  - versions      │                  │
-   └─────────┬────────┘                  │
-             │                           │
-   ┌─────────▼───────────────────────────▼─-───────┐
-   │         AWS Service Clients                   │
-   │  ┌──────────┐  ┌──────────┐  ┌──────────┐     │
-   │  │  Lambda  │  │    S3    │  │   IAM    │     │
-   │  └──────────┘  └──────────┘  └──────────┘     │
-   └───────────────────────┬───────────────────────┘
-                           │
-   ┌───────────────────────▼───────────────────────┐
-   │            AWS Services                       │
-   │  ┌──────────┐  ┌──────────┐  ┌──────────┐     │
-   │  │ Lambda   │  │ S3 Bucket│  │ IAM OIDC │     │
-   │  │ Functions│  │          │  │ Provider │     │
-   │  └──────────┘  └──────────┘  └──────────┘     │
-   └───────────────────────────────────────────────┘
+│                     Customer Environment                        │
+│                                                                 │
+│  ┌──────────────┐                                               │
+│  │   Developer  │                                               │
+│  │   Machine    │                                               │
+│  └──────┬───────┘                                               │
+│         │                                                       │
+│         │ 1. rosactl bootstrap create                          │
+│         │    --image-uri <ECR_URI>                              │
+│         ▼                                                       │
+│  ┌─────────────────┐                                            │
+│  │  CloudFormation │                                            │
+│  │  Stack (Lambda) │                                            │
+│  └────────┬────────┘                                            │
+│           │ Creates                                             │
+│           ▼                                                     │
+│  ┌──────────────────────┐                                       │
+│  │  Lambda Function     │                                       │
+│  │  (Container-based)   │                                       │
+│  │  - Go Binary         │                                       │
+│  │  - CF Templates      │                                       │
+│  └──────────┬───────────┘                                       │
+│             │                                                   │
+│             │ 2. rosactl cluster-iam create                     │
+│             │    Invokes Lambda                                 │
+│             ▼                                                   │
+│  ┌──────────────────────┐                                       │
+│  │  CloudFormation      │                                       │
+│  │  Stack (Cluster IAM) │                                       │
+│  └──────────┬───────────┘                                       │
+│             │ Creates                                           │
+│             ▼                                                   │
+│  ┌─────────────────────────────────────────┐                    │
+│  │  Cluster IAM Resources                  │                    │
+│  │  - IAM OIDC Provider                    │                    │
+│  │  - 7 Control Plane Roles                │                    │
+│  │  - Worker Node Role + Instance Profile  │                    │
+│  └─────────────────────────────────────────┘                    │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│               Red Hat Management Cluster                        │
+│                                                                 │
+│  ┌──────────────────────────────────────┐                       │
+│  │  OIDC Issuer Infrastructure          │                       │
+│  │  - CloudFront Distribution           │                       │
+│  │  - Private S3 Bucket + OAC           │                       │
+│  │  - HyperShift-managed RSA Keys       │                       │
+│  └──────────────────────────────────────┘                       │
+│                                                                 │
+│  Customer's IAM OIDC Provider points here ──────────────────────┤
+│  (e.g., https://d1234.cloudfront.net/cluster-name)             │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ## Components
 
-### Component 1: CLI Layer
-**Responsibility**: Parse user commands, validate arguments, coordinate execution flow
+### 1. CLI Layer (`cmd/rosactl`)
 
-**Interfaces**:
-- Input: Command-line arguments from user
-- Output: Formatted output to stdout/stderr, exit codes
+**Responsibility**: Parse user commands, manage AWS resources via SDK
 
-**Dependencies**:
-- `github.com/spf13/cobra` - Command routing and parsing
-- Internal command packages
+**Key Commands**:
+- `rosactl bootstrap create` - Deploy Lambda function via CloudFormation
+- `rosactl bootstrap delete` - Remove Lambda infrastructure
+- `rosactl bootstrap status` - Show Lambda stack status
+- `rosactl cluster-iam create` - Invoke Lambda to create IAM resources
+- `rosactl cluster-iam delete` - Invoke Lambda to delete IAM resources
+- `rosactl cluster-iam list` - List cluster IAM stacks
+- `rosactl cluster-iam describe` - Show cluster IAM details
+- `rosactl version` - Show CLI version
 
-**Key Modules**:
-- `internal/commands/root.go` - Root command setup and global flags
-- `internal/commands/lambda/` - Lambda command group (create, delete, invoke, list, versions)
-- `internal/commands/oidc/` - OIDC command group (create, delete, list)
+**Implementation**:
+- `internal/commands/bootstrap/` - Bootstrap command group
+- `internal/commands/clusteriam/` - Cluster IAM command group
 - `internal/commands/version/` - Version command
 
 ---
 
-### Component 2: AWS Service Clients
-**Responsibility**: Interact with AWS services via SDK, encapsulate AWS-specific logic
+### 2. Lambda Handler (`internal/lambda/handler.go`)
 
-**Interfaces**:
-- Input: Context, operation parameters
-- Output: AWS resource details, errors
+**Responsibility**: Execute in Lambda to apply CloudFormation templates
 
-**Dependencies**:
-- `github.com/aws/aws-sdk-go-v2` - AWS SDK for Go v2
-- AWS credentials (from environment, profile, or IAM role)
+**Dual-Mode Binary**:
+The same Go binary runs in two modes:
+- **CLI Mode**: When `AWS_LAMBDA_RUNTIME_API` is not set
+- **Lambda Mode**: When `AWS_LAMBDA_RUNTIME_API` is set
 
-**Key Modules**:
-- `internal/aws/lambda/client.go` - Lambda service wrapper
-- `internal/aws/lambda/create.go` - Lambda creation functions
-- `internal/aws/lambda/role.go` - IAM role management
-- `internal/aws/s3/client.go` - S3 service wrapper
-- `internal/aws/s3/bucket.go` - S3 bucket operations
-- `internal/aws/oidc/client.go` - IAM OIDC provider wrapper
-- `internal/aws/oidc/list.go` - OIDC provider listing
+**Lambda Actions**:
+- `apply-cluster-iam` - Creates CloudFormation stack with IAM resources
+- `delete-cluster-iam` - Deletes CloudFormation stack
 
----
-
-### Component 3: Crypto Layer
-**Responsibility**: Generate RSA key pairs for OIDC issuers, convert keys to various formats
-
-**Interfaces**:
-- Input: None (generates new keys)
-- Output: RSA key pair with JWKS-compatible fields
-
-**Dependencies**:
-- `crypto/rsa` - Go standard library RSA
-- `crypto/x509` - PEM encoding
-
-**Key Modules**:
-- `internal/crypto/rsa.go` - RSA key generation and conversion
-  - `GenerateRSAKeyPair()` - Creates 2048-bit RSA key pair
-  - `PrivateKeyToPEM()` - Converts private key to PEM format
-
-**Key Design**:
-- Generates RSA-2048 keys
-- Extracts public key components (N, E) as base64url-encoded strings
-- Generates Key ID (KID) as SHA256 hash of modulus
-- Saves private key to `/tmp/oidc-private-key-{KID}.pem` with `0600` permissions
+**Implementation**:
+```go
+func Handler(ctx context.Context, event Event) (Response, error) {
+    switch event.Action {
+    case "apply-cluster-iam":
+        return applyClusterIAM(ctx, event)
+    case "delete-cluster-iam":
+        return deleteClusterIAM(ctx, event)
+    }
+}
+```
 
 ---
 
-### Component 4: Python Handler Layer
-**Responsibility**: Provide Python Lambda handler code for different function types
+### 3. AWS Service Clients
 
-**Interfaces**:
-- Input: Handler type (default, OIDC, OIDC delete)
-- Output: Python source code as string constant
+**CloudFormation Client** (`internal/aws/cloudformation/`):
+- CreateStack, UpdateStack, DeleteStack
+- DescribeStack, ListStacks, GetStackEvents
+- Waiters for stack completion
 
-**Dependencies**:
-- `internal/python/package.go` - ZIP packaging utilities
+**Lambda Client** (`internal/aws/lambda/`):
+- InvokeFunction with JSON payload
+- Used by cluster-iam commands to trigger Lambda
 
-**Key Modules**:
-- `internal/python/handler.go` - Handler source code constants
-  - `DefaultHandler` - Basic hello world handler with timestamp
-  - `OIDCHandler` - Creates S3-backed OIDC issuer with IAM provider
-  - `OIDCDeleteHandler` - Deletes S3 bucket and IAM OIDC provider
+**IAM Client** (via CloudFormation):
+- All IAM operations done through CloudFormation
+- No direct IAM SDK calls in CLI
+
+---
+
+### 4. Crypto Layer (`internal/crypto/`)
+
+**TLS Thumbprint Fetching**:
+- Connects to OIDC issuer URL via HTTPS
+- Extracts root CA certificate
+- Calculates SHA-1 fingerprint
+- Mimics Terraform's `data.tls_certificate` behavior
+
+**Implementation**:
+```go
+func GetOIDCThumbprint(ctx context.Context, issuerURL string) (string, error) {
+    // Connect to issuer, get TLS cert, return SHA-1 hash
+}
+```
+
+---
+
+### 5. CloudFormation Templates
+
+**Bootstrap Template** (`templates/lambda-bootstrap.yaml`):
+- Lambda execution IAM role with CloudFormation + IAM permissions
+- Lambda function using container image from ECR
+- Parameters: ContainerImageURI, FunctionName
+
+**Cluster IAM Template** (`templates/cluster-iam.yaml`):
+- IAM OIDC Provider pointing to Red Hat's CloudFront URL
+- 7 control plane IAM roles with OIDC trust policies:
+  - `ingress` - ROSAIngressOperatorPolicy
+  - `cloud-controller-manager` - ROSAKubeControllerPolicy
+  - `ebs-csi` - ROSAAmazonEBSCSIDriverOperatorPolicy
+  - `image-registry` - ROSAImageRegistryOperatorPolicy
+  - `network-config` - ROSACloudNetworkConfigOperatorPolicy
+  - `control-plane-operator` - ROSAControlPlaneOperatorPolicy + supplemental policies
+  - `node-pool-management` - ROSANodePoolManagementPolicy + supplemental policies
+- Worker node IAM role + instance profile with EC2 trust
+
+Parameters: ClusterName, OIDCIssuerURL, OIDCThumbprint
+
+---
+
+### 6. Container Image
+
+**Dockerfile** (UBI9-based multi-stage build):
+- Build stage: golang:1.24 compiles Go binary
+- Runtime stage: ubi9-minimal with Go binary + CloudFormation templates
+- Templates copied to `/app/templates/` for Lambda access
+
+**Build and Push**:
+```bash
+docker build -f Dockerfile -t rosa-cli:latest .
+docker tag rosa-cli:latest <account>.dkr.ecr.us-east-1.amazonaws.com/rosa-cli:latest
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/rosa-cli:latest
+```
 
 ---
 
 ## Data Flow
 
-### Flow 1: Create OIDC Lambda Function
-
-1. User runs: `rosactl lambda create my-oidc-issuer --handler oidc`
-2. CLI parses command and dispatches to Lambda create handler
-3. Lambda client generates RSA key pair via crypto layer
-4. **Private key saved to `/tmp/oidc-private-key-{KID}.pem`** (0600 permissions)
-5. Public key components (N, E, KID) extracted for Lambda environment variables
-6. Lambda client ensures OIDC execution IAM role exists (with S3 + IAM permissions)
-7. Python OIDC handler code packaged into ZIP
-8. Lambda function created with:
-   - Runtime: Python 3.12
-   - Environment variables: `JWK_N`, `JWK_E`, `JWK_KID`, `CREATED_AT`
-   - Role: `rosactl-lambda-oidc-execution-role`
-   - Handler: `lambda_function.lambda_handler`
-9. Function published as version 1
-10. User sees success message with private key location
+### Flow 1: Bootstrap Lambda (One-Time Setup)
 
 ```
-User → CLI → Lambda Client → Crypto Layer → IAM Role → Package Handler → Create Function → User
-                    ↓
-              Save Private Key
-              to /tmp/*.pem
+1. User runs: rosactl bootstrap create --image-uri <ECR_URI> --region us-east-1
+   ↓
+2. CLI reads templates/lambda-bootstrap.yaml
+   ↓
+3. CLI creates CloudFormation stack with parameters:
+   - ContainerImageURI: <ECR_URI>
+   - FunctionName: rosa-regional-platform-lambda
+   ↓
+4. CloudFormation creates:
+   - Lambda execution IAM role (with CF + IAM permissions)
+   - Lambda function (container image from ECR)
+   ↓
+5. Stack outputs:
+   - LambdaFunctionArn
+   - LambdaFunctionName
+   - ExecutionRoleArn
 ```
 
 ---
 
-### Flow 2: Create OIDC Issuer (via Lambda Invocation)
-
-1. User runs: `rosactl oidc create my-cluster --region us-east-1 --function my-oidc-issuer`
-2. CLI auto-prefixes bucket name: `oidc-issuer-my-cluster`
-3. CLI constructs payload: `{"bucket_name": "oidc-issuer-my-cluster", "region": "us-east-1"}`
-4. Lambda client invokes OIDC Lambda function with payload
-5. **Lambda function executes (Python):**
-   - Reads RSA public key from environment variables (`JWK_N`, `JWK_E`, `JWK_KID`)
-   - Creates S3 bucket with public read policy
-   - Generates OIDC discovery document (`.well-known/openid-configuration`)
-   - Generates JWKS document (`keys.json`) with public key
-   - Uploads both documents to S3
-   - Creates IAM OIDC provider pointing to S3 bucket URL
-6. Lambda returns success with provider ARN and URLs
-7. User sees formatted JSON output
+### Flow 2: Create Cluster IAM (Per Cluster)
 
 ```
-User → CLI → Lambda Client → Invoke Function → Python Handler
-                                                      ↓
-                                    S3 Bucket + OIDC Docs + IAM Provider
+1. User runs: rosactl cluster-iam create my-cluster \
+              --oidc-issuer-url https://d1234.cloudfront.net/my-cluster \
+              --region us-east-1
+   ↓
+2. CLI validates inputs (cluster name, OIDC URL format)
+   ↓
+3. CLI fetches TLS thumbprint from OIDC issuer URL
+   ↓
+4. CLI invokes Lambda with payload:
+   {
+     "action": "apply-cluster-iam",
+     "cluster_name": "my-cluster",
+     "oidc_issuer_url": "https://d1234.cloudfront.net/my-cluster",
+     "oidc_thumbprint": "a1b2c3d4..."
+   }
+   ↓
+5. Lambda handler receives event:
+   - Reads /app/templates/cluster-iam.yaml
+   - Applies CloudFormation stack: rosa-my-cluster-iam
+   - Waits for CREATE_COMPLETE
+   ↓
+6. CloudFormation creates:
+   - IAM OIDC Provider
+   - 7 control plane IAM roles
+   - Worker node IAM role + instance profile
+   ↓
+7. Lambda returns outputs to CLI:
+   - StackID
+   - Outputs: All role ARNs, OIDC provider ARN, instance profile name
+   ↓
+8. CLI displays formatted output to user
 ```
 
 ---
 
-### Flow 3: Using the Private Key
+### Flow 3: Delete Cluster IAM
 
-The private key saved in `/tmp/oidc-private-key-{KID}.pem` can be used to:
-
-1. **Sign JWTs** that will be validated against the published public key
-2. **Create service account tokens** for Kubernetes/OpenShift
-3. **Issue custom claims** for applications
-
-**Example JWT Signing Flow:**
 ```
-Application → Read Private Key → Sign JWT with Claims → JWT Token
-                                                            ↓
-                                              Token sent to verifier
-                                                            ↓
-                    Verifier → Fetch JWKS from OIDC Issuer → Validate JWT
+1. User runs: rosactl cluster-iam delete my-cluster --region us-east-1
+   ↓
+2. CLI invokes Lambda with payload:
+   {
+     "action": "delete-cluster-iam",
+     "cluster_name": "my-cluster"
+   }
+   ↓
+3. Lambda deletes CloudFormation stack: rosa-my-cluster-iam
+   ↓
+4. CloudFormation deletes all IAM resources:
+   - Worker instance profile
+   - Worker IAM role
+   - 7 control plane IAM roles
+   - IAM OIDC Provider
+   ↓
+5. Lambda returns success to CLI
 ```
-
-The JWKS at `https://{bucket}.s3.{region}.amazonaws.com/keys.json` contains the public key matching the private key.
 
 ---
 
 ## Design Patterns
 
-### Pattern 1: Command Pattern
-**Where Used**: CLI command structure (`internal/commands/`)
-**Why**: Provides extensible command structure with clear separation of concerns
-**Implementation**: Each command group (lambda, oidc) is a separate package with subcommands
+### Pattern 1: Dual-Mode Binary
+**Implementation**: Single Go binary detects execution environment
+```go
+if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
+    lambdaHandler.Start()  // Lambda mode
+} else {
+    commands.Execute()     // CLI mode
+}
+```
 
-### Pattern 2: Client Wrapper Pattern
-**Where Used**: AWS service clients (`internal/aws/*/client.go`)
-**Why**: Encapsulates AWS SDK complexity, provides consistent error handling
-**Implementation**: Each AWS service has a client struct with methods for operations
-
-### Pattern 3: Strategy Pattern
-**Where Used**: Lambda function creation (Default vs OIDC handler)
-**Why**: Allows different creation strategies based on `--handler` flag
-**Implementation**: Switch statement dispatches to different creation methods
+**Benefits**:
+- Single binary to build and distribute
+- No code duplication between CLI and Lambda
+- Same CloudFormation logic in both contexts
 
 ---
 
-## External Integrations
+### Pattern 2: Template-Based Infrastructure
+**Implementation**: CloudFormation templates as files, not inline code
 
-### Integration 1: AWS Lambda
-**Purpose**: Deploy and execute serverless functions
-**Protocol**: AWS SDK (HTTPS/REST)
-**Authentication**: AWS credentials (profile, environment, IAM role)
-**Operations**:
-- `CreateFunction` - Deploy Lambda function
-- `InvokeFunction` - Execute Lambda function
-- `DeleteFunction` - Remove Lambda function
-- `ListFunctions` - List all functions
-- `PublishVersion` - Create immutable version
+**Benefits**:
+- No 4096 character limits (inline Python Lambda limitation)
+- Fully auditable (Git-tracked YAML files)
+- Security review before deployment
+- Reusable across tools (Terraform, CDK, manual deployment)
 
-### Integration 2: AWS S3
-**Purpose**: Host OIDC discovery documents for S3-backed issuers
-**Protocol**: AWS SDK (HTTPS/REST)
-**Authentication**: AWS credentials
-**Operations**:
-- `CreateBucket` - Create S3 bucket
-- `PutObject` - Upload OIDC documents
-- `PutBucketPolicy` - Enable public read access
-- `PutPublicAccessBlock` - Configure public access
-- `DeleteBucket` - Remove bucket
+---
 
-### Integration 3: AWS IAM
-**Purpose**: Create OIDC identity providers and manage Lambda execution roles
-**Protocol**: AWS SDK (HTTPS/REST)
-**Authentication**: AWS credentials
-**Operations**:
-- `CreateRole` - Create Lambda execution role
-- `AttachRolePolicy` - Attach managed policies
-- `PutRolePolicy` - Attach inline policies
-- `CreateOpenIDConnectProvider` - Register OIDC issuer
-- `DeleteOpenIDConnectProvider` - Remove OIDC provider
+### Pattern 3: Lambda as CloudFormation Executor
+**Implementation**: Lambda simply applies CloudFormation templates
+
+**Benefits**:
+- Lambda invocations logged in CloudWatch
+- CloudFormation provides rollback on failure
+- CloudFormation drift detection available
+- Permissions scoped to Lambda execution role
 
 ---
 
 ## Security Architecture
 
-### RSA Private Key Management
+### IAM Permissions Separation
 
-**Key Generation:**
-- RSA-2048 keys generated using Go's `crypto/rsa`
-- Cryptographically secure random number generator
-- Keys generated on-demand during OIDC Lambda creation
+**CLI User Permissions** (customer developer):
+- CloudFormation: CreateStack, DescribeStacks, DeleteStack
+- Lambda: InvokeFunction (for cluster-iam commands)
+- ECR: GetAuthorizationToken, BatchGetImage (for pushing container images)
 
-**Key Storage:**
-- Private key saved to: `/tmp/oidc-private-key-{KID}.pem`
-- File permissions: `0600` (owner read/write only)
-- Format: PEM-encoded RSA PRIVATE KEY
-- **User responsibility**: Move to secure location or AWS Secrets Manager for production
+**Lambda Execution Role Permissions**:
+- CloudFormation: CreateStack, UpdateStack, DeleteStack, DescribeStacks
+- IAM: CreateOpenIDConnectProvider, CreateRole, AttachRolePolicy, CreateInstanceProfile, etc.
+- Scoped to `rosa-*` CloudFormation stacks
 
-**Key Usage:**
-- Public key (N, E, KID) stored in Lambda environment variables
-- Public key published in OIDC issuer's JWKS endpoint
-- Private key used offline to sign JWTs
-
-**Security Warnings:**
-- User warned via CLI output about private key location
-- User advised to keep file secure
-- Temp directory not encrypted by default (OS-dependent)
-
-### AWS IAM Permissions
-
-**OIDC Lambda Execution Role:**
-- S3 permissions scoped to `oidc-issuer-*` buckets only
-- IAM permissions for OIDC provider management only
-- CloudWatch Logs for observability
-
-**User Permissions Required:**
-- Lambda: CreateFunction, DeleteFunction, InvokeFunction, etc.
-- IAM: CreateRole, AttachRolePolicy, CreateOpenIDConnectProvider
-- S3: CreateBucket, PutObject, PutBucketPolicy (for OIDC issuers)
+**No Long-Lived Credentials**:
+- OIDC uses federated trust (no AWS credentials in workloads)
+- Lambda uses execution role (no credentials in environment variables)
 
 ---
 
-## Trade-offs & Constraints
+### OIDC Trust Chain
 
-### Private Key Storage Trade-off
-
-**Decision**: Save private key to `/tmp` instead of AWS Secrets Manager
-
-**Rationale**:
-- Simplicity: No additional AWS service dependencies
-- User control: User decides where to store key long-term
-- Transparency: User sees exactly what's happening
-
-**Trade-offs**:
-- ✅ Simple implementation, no secrets management complexity
-- ✅ User has full control over key lifecycle
-- ⚠️ Key stored in plaintext on disk (OS encryption may apply)
-- ⚠️ Temp directory may be cleared on reboot
-- ⚠️ User must manually move key to secure location
-
-**Future Enhancement**: Add `--save-key-to` flag to specify custom location or Secrets Manager ARN
-
-### S3-Backed OIDC Pattern
-
-**Decision**: Use S3 buckets to host OIDC discovery documents instead of API Gateway or CloudFront
-
-**Rationale**:
-- Cost-effective: S3 storage + bandwidth cheaper than API Gateway
-- Simple: No Lambda@Edge or API Gateway setup required
-- Proven pattern: Used by ROSA and other AWS-based Kubernetes distributions
-
-**Trade-offs**:
-- ✅ Low cost, high availability
-- ✅ Simple architecture
-- ⚠️ S3 URLs not user-friendly (long bucket URLs)
-- ⚠️ No custom domain support (would require CloudFront)
-- ⚠️ S3 eventual consistency can delay deletions
-
-### Lambda-Based OIDC Management
-
-**Decision**: Use Lambda functions to create/delete OIDC issuers instead of direct SDK calls from CLI
-
-**Rationale**:
-- Consistency: Lambda has same permissions model as other AWS services
-- Reusability: Lambda can be invoked from other tools (Terraform, CloudFormation)
-- Auditability: CloudWatch logs capture all OIDC operations
-
-**Trade-offs**:
-- ✅ Lambda invocations logged in CloudWatch
-- ✅ Can be used in automation pipelines
-- ✅ Permissions scoped to Lambda execution role
-- ⚠️ Additional step (create Lambda before creating issuers)
-- ⚠️ Lambda cold starts add latency
+```
+1. HyperShift Operator (Management Cluster)
+   ↓ Generates RSA key pair
+   ↓ Stores in Kubernetes Secret
+   ↓
+2. Public Key Published
+   ↓ CloudFront: https://d1234.cloudfront.net/my-cluster/keys.json
+   ↓ S3 (private with OAC): oidc-issuer-bucket/my-cluster/
+   ↓
+3. Customer IAM OIDC Provider
+   ↓ Issuer URL: https://d1234.cloudfront.net/my-cluster
+   ↓ Thumbprint: SHA-1 of CloudFront TLS cert
+   ↓
+4. Control Plane Pods (Management Cluster)
+   ↓ ServiceAccount token signed by HyperShift
+   ↓ AssumeRoleWithWebIdentity to customer IAM roles
+   ↓
+5. Customer IAM Roles
+   ↓ Trust policy: OIDC provider + specific ServiceAccount
+   ↓ Temporary credentials granted to control plane pods
+```
 
 ---
 
 ## Monitoring & Observability
 
-**Logging:**
-- CLI: stdout/stderr for user-facing messages
-- Lambda: CloudWatch Logs for function execution
-- AWS SDK: Debug logging via `AWS_SDK_DEBUG` environment variable
+**CloudWatch Logs**:
+- Lambda execution logs: `/aws/lambda/rosa-regional-platform-lambda`
+- CloudFormation stack events visible in AWS Console
 
-**Metrics:**
-- Lambda invocation count, duration, errors (CloudWatch Metrics)
-- S3 bucket operations (S3 metrics)
+**CloudWatch Metrics**:
+- Lambda invocation count, duration, errors
+- CloudFormation stack status (via CloudWatch Events)
 
-**Tracing:**
-- Not currently implemented
-- Future: AWS X-Ray integration for Lambda tracing
+**CLI Logging**:
+- stdout/stderr for user-facing messages
+- `--verbose` flag for debug output (future enhancement)
 
 ---
 
-## Scalability Considerations
+## Trade-offs & Constraints
 
-**CLI Scalability:**
-- Stateless CLI tool, scales horizontally (multiple users)
-- No persistent connections or state
+### Container-Based Lambda vs Inline Python
 
-**Lambda Scalability:**
-- AWS Lambda auto-scales based on invocation rate
-- OIDC Lambda: Low invocation frequency (create/delete operations)
+**Decision**: Use container-based Lambda with Go binary
 
-**S3 Bucket Limits:**
-- S3 bucket names globally unique (collision risk with common names)
-- Auto-prefixing with `oidc-issuer-` reduces collisions
-- No practical limit on number of buckets per account
+**Rationale**:
+- CloudFormation templates can be full files (no 4096 char limit)
+- Single codebase for CLI and Lambda
+- UBI9 base image for security scanning
+- Faster cold starts than Python with large dependencies
+
+**Trade-offs**:
+- ✅ Unlimited template size
+- ✅ Full auditability (templates in Git)
+- ✅ Single binary to maintain
+- ⚠️ Requires ECR push step (container image must be available)
+- ⚠️ Larger Lambda package (container image vs ZIP)
+
+---
+
+### CloudFormation for All Resources
+
+**Decision**: All IAM resources defined in CloudFormation, not direct SDK calls
+
+**Rationale**:
+- Declarative infrastructure (GitOps-friendly)
+- Automatic rollback on failure
+- Drift detection available
+- Change sets for previewing updates
+
+**Trade-offs**:
+- ✅ Full rollback support
+- ✅ Change sets for safety
+- ✅ Templates auditable before deployment
+- ⚠️ CloudFormation quotas (200 resources per stack - not an issue for us)
+- ⚠️ Slower than direct SDK calls (stack creation ~30-60s)
+
+---
+
+### Managed OIDC (Red Hat-Hosted) Only
+
+**Decision**: No support for customer-hosted OIDC issuers
+
+**Rationale**:
+- Aligns with ROSA HCP service architecture
+- Simpler key management (HyperShift handles it)
+- No RSA private keys in customer accounts
+- Eliminates S3 bucket creation in customer accounts
+
+**Trade-offs**:
+- ✅ No key management complexity for customers
+- ✅ No S3 buckets to manage
+- ✅ Consistent with ROSA service model
+- ⚠️ Requires Red Hat infrastructure to be available
+- ⚠️ No offline/air-gapped support
 
 ---
 
 ## Future Enhancements
 
-1. **AWS Secrets Manager Integration**: Store private keys in Secrets Manager instead of temp directory
-2. **Custom Domains**: Support CloudFront + custom domains for OIDC issuers
-3. **Key Rotation**: Automate RSA key rotation with multiple keys in JWKS
-4. **JWT Signing Command**: Add `rosactl jwt sign` command using saved private keys
-5. **Backup/Restore**: Export/import OIDC issuer configurations
-6. **Multi-Region**: Replicate OIDC issuers across regions for high availability
+1. **VPC Management**: Add CloudFormation templates for VPC creation (from rosa-regional-platform Terraform)
+2. **Multi-Region**: Support replicating IAM resources across regions
+3. **Dry-Run Mode**: Preview CloudFormation changes before applying
+4. **CloudFormation Change Sets**: Use change sets for safer updates
+5. **CloudWatch Alarms**: Add alarms for Lambda failures
+6. **Rollback Support**: Add `cluster-iam rollback` command
+7. **Template Validation**: Validate templates before deployment
+
+---
+
+## References
+
+- [ROSA Regional Platform Terraform](https://github.com/openshift-online/rosa-regional-platform)
+- [HyperShift OIDC Implementation](https://github.com/openshift/hypershift)
+- [AWS CloudFormation Best Practices](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/best-practices.html)
+- [AWS Lambda Container Images](https://docs.aws.amazon.com/lambda/latest/dg/images-create.html)

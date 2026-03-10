@@ -1,0 +1,549 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ROSA Regional Platform - Hosted Cluster VPC'
+
+Parameters:
+  ClusterName:
+    Type: String
+    Description: 'Name of the hosted cluster (used for resource naming)'
+    AllowedPattern: '^[a-z0-9-]+$'
+    ConstraintDescription: 'Must contain only lowercase letters, numbers, and hyphens'
+
+  VpcCidr:
+    Type: String
+    Description: 'CIDR block for the VPC'
+    Default: '10.0.0.0/16'
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+
+  PublicSubnetCidrs:
+    Type: CommaDelimitedList
+    Description: 'CIDR blocks for public subnets (comma-separated, must match private subnet count)'
+    Default: '10.0.101.0/24,10.0.102.0/24,10.0.103.0/24'
+
+  PrivateSubnetCidrs:
+    Type: CommaDelimitedList
+    Description: 'CIDR blocks for private subnets where worker nodes will run'
+    Default: '10.0.0.0/19,10.0.32.0/19,10.0.64.0/19'
+
+  AvailabilityZone1:
+    Type: String
+    Description: 'First availability zone (leave empty for auto-detect)'
+    Default: ''
+
+  AvailabilityZone2:
+    Type: String
+    Description: 'Second availability zone (leave empty for auto-detect)'
+    Default: ''
+
+  AvailabilityZone3:
+    Type: String
+    Description: 'Third availability zone (leave empty for auto-detect)'
+    Default: ''
+
+  SingleNatGateway:
+    Type: String
+    Description: 'Use single NAT gateway for cost savings (true) or per-AZ for HA (false)'
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+
+Conditions:
+  UseSingleNat: !Equals [!Ref SingleNatGateway, 'true']
+  UseMultiNat: !Not [!Condition UseSingleNat]
+  HasAZ1: !Not [!Equals [!Ref AvailabilityZone1, '']]
+  HasAZ2: !Not [!Equals [!Ref AvailabilityZone2, '']]
+  HasAZ3: !Not [!Equals [!Ref AvailabilityZone3, '']]
+  CreateNat2: !And [!Condition UseMultiNat, !Condition HasAZ2]
+  CreateNat3: !And [!Condition UseMultiNat, !Condition HasAZ3]
+  CreatePrivateRT2: !Condition CreateNat2
+  CreatePrivateRT3: !Condition CreateNat3
+
+Resources:
+  # =============================================================================
+  # VPC and Internet Gateway
+  # =============================================================================
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-vpc'
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-igw'
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # =============================================================================
+  # Public Subnets (for load balancers and NAT gateways)
+  # =============================================================================
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [0, !Ref PublicSubnetCidrs]
+      AvailabilityZone: !If
+        - HasAZ1
+        - !Ref AvailabilityZone1
+        - !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-public-${AWS::Region}a'
+        - Key: kubernetes.io/role/elb
+          Value: '1'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: HasAZ2
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [1, !Ref PublicSubnetCidrs]
+      AvailabilityZone: !If
+        - HasAZ2
+        - !Ref AvailabilityZone2
+        - !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-public-${AWS::Region}b'
+        - Key: kubernetes.io/role/elb
+          Value: '1'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  PublicSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: HasAZ3
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [2, !Ref PublicSubnetCidrs]
+      AvailabilityZone: !If
+        - HasAZ3
+        - !Ref AvailabilityZone3
+        - !Select [2, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-public-${AWS::Region}c'
+        - Key: kubernetes.io/role/elb
+          Value: '1'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  # =============================================================================
+  # Private Subnets (for worker nodes)
+  # =============================================================================
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [0, !Ref PrivateSubnetCidrs]
+      AvailabilityZone: !If
+        - HasAZ1
+        - !Ref AvailabilityZone1
+        - !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-private-${AWS::Region}a'
+        - Key: kubernetes.io/role/internal-elb
+          Value: '1'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: HasAZ2
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [1, !Ref PrivateSubnetCidrs]
+      AvailabilityZone: !If
+        - HasAZ2
+        - !Ref AvailabilityZone2
+        - !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-private-${AWS::Region}b'
+        - Key: kubernetes.io/role/internal-elb
+          Value: '1'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  PrivateSubnet3:
+    Type: AWS::EC2::Subnet
+    Condition: HasAZ3
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Select [2, !Ref PrivateSubnetCidrs]
+      AvailabilityZone: !If
+        - HasAZ3
+        - !Ref AvailabilityZone3
+        - !Select [2, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-private-${AWS::Region}c'
+        - Key: kubernetes.io/role/internal-elb
+          Value: '1'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  # =============================================================================
+  # NAT Gateways for Internet Egress
+  # =============================================================================
+
+  NatEIP1:
+    Type: AWS::EC2::EIP
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-nat-eip-1'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP1.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-nat-gw-1'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  NatEIP2:
+    Type: AWS::EC2::EIP
+    Condition: CreateNat2
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-nat-eip-2'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  NatGateway2:
+    Type: AWS::EC2::NatGateway
+    Condition: CreateNat2
+    Properties:
+      AllocationId: !GetAtt NatEIP2.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-nat-gw-2'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  NatEIP3:
+    Type: AWS::EC2::EIP
+    Condition: CreateNat3
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-nat-eip-3'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  NatGateway3:
+    Type: AWS::EC2::NatGateway
+    Condition: CreateNat3
+    Properties:
+      AllocationId: !GetAtt NatEIP3.AllocationId
+      SubnetId: !Ref PublicSubnet3
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-nat-gw-3'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  # =============================================================================
+  # Route Tables
+  # =============================================================================
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-public-rt'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: HasAZ2
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: HasAZ3
+    Properties:
+      SubnetId: !Ref PublicSubnet3
+      RouteTableId: !Ref PublicRouteTable
+
+  PrivateRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !If
+            - UseSingleNat
+            - !Sub '${ClusterName}-hc-private-rt'
+            - !Sub '${ClusterName}-hc-private-rt-1'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  PrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+
+  PrivateSubnetRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTable1
+
+  PrivateRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Condition: CreatePrivateRT2
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-private-rt-2'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  PrivateRoute2:
+    Type: AWS::EC2::Route
+    Condition: CreatePrivateRT2
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway2
+
+  PrivateSubnetRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: HasAZ2
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !If
+        - UseSingleNat
+        - !Ref PrivateRouteTable1
+        - !Ref PrivateRouteTable2
+
+  PrivateRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Condition: CreatePrivateRT3
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-private-rt-3'
+        - Key: Cluster
+          Value: !Ref ClusterName
+
+  PrivateRoute3:
+    Type: AWS::EC2::Route
+    Condition: CreatePrivateRT3
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway3
+
+  PrivateSubnetRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: HasAZ3
+    Properties:
+      SubnetId: !Ref PrivateSubnet3
+      RouteTableId: !If
+        - UseSingleNat
+        - !Ref PrivateRouteTable1
+        - !Ref PrivateRouteTable3
+
+  # =============================================================================
+  # Worker Node Security Group
+  # =============================================================================
+
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${ClusterName}-hc-worker-sg'
+      GroupDescription: 'Security group for hosted cluster worker nodes'
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${ClusterName}-hc-worker-sg'
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+
+  WorkerSecurityGroupIngressSelf:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref WorkerSecurityGroup
+      IpProtocol: '-1'
+      SourceSecurityGroupId: !Ref WorkerSecurityGroup
+      Description: 'Allow all traffic between worker nodes'
+
+  WorkerSecurityGroupIngressVPC:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref WorkerSecurityGroup
+      IpProtocol: '-1'
+      CidrIp: !Ref VpcCidr
+      Description: 'Allow all traffic from within the VPC'
+
+  WorkerSecurityGroupEgressAll:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref WorkerSecurityGroup
+      IpProtocol: '-1'
+      CidrIp: 0.0.0.0/0
+      Description: 'Allow all outbound traffic'
+
+  # =============================================================================
+  # Private Hosted Zone for PrivateLink DNS
+  # =============================================================================
+
+  HypershiftLocalZone:
+    Type: AWS::Route53::HostedZone
+    Properties:
+      Name: !Sub '${ClusterName}.hypershift.local'
+      VPCs:
+        - VPCId: !Ref VPC
+          VPCRegion: !Ref AWS::Region
+      HostedZoneTags:
+        - Key: Name
+          Value: !Sub '${ClusterName}.hypershift.local'
+        - Key: !Sub 'kubernetes.io/cluster/${ClusterName}'
+          Value: 'owned'
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+
+Outputs:
+  VpcId:
+    Description: 'ID of the VPC'
+    Value: !Ref VPC
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcId'
+
+  VpcCidr:
+    Description: 'CIDR block of the VPC'
+    Value: !Ref VpcCidr
+    Export:
+      Name: !Sub '${AWS::StackName}-VpcCidr'
+
+  PrivateSubnetIds:
+    Description: 'Comma-separated list of private subnet IDs for worker nodes'
+    Value: !If
+      - HasAZ3
+      - !Sub '${PrivateSubnet1},${PrivateSubnet2},${PrivateSubnet3}'
+      - !If
+        - HasAZ2
+        - !Sub '${PrivateSubnet1},${PrivateSubnet2}'
+        - !Ref PrivateSubnet1
+
+  PublicSubnetIds:
+    Description: 'Comma-separated list of public subnet IDs'
+    Value: !If
+      - HasAZ3
+      - !Sub '${PublicSubnet1},${PublicSubnet2},${PublicSubnet3}'
+      - !If
+        - HasAZ2
+        - !Sub '${PublicSubnet1},${PublicSubnet2}'
+        - !Ref PublicSubnet1
+
+  WorkerSecurityGroupId:
+    Description: 'ID of the security group for worker nodes'
+    Value: !Ref WorkerSecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-WorkerSecurityGroupId'
+
+  HypershiftLocalZoneId:
+    Description: 'Route53 hosted zone ID for {cluster}.hypershift.local PrivateLink DNS'
+    Value: !Ref HypershiftLocalZone
+    Export:
+      Name: !Sub '${AWS::StackName}-HypershiftLocalZoneId'
+
+  NatGatewayIds:
+    Description: 'Comma-separated list of NAT Gateway IDs'
+    Value: !If
+      - UseSingleNat
+      - !Ref NatGateway1
+      - !If
+        - CreateNat3
+        - !Sub '${NatGateway1},${NatGateway2},${NatGateway3}'
+        - !If
+          - CreateNat2
+          - !Sub '${NatGateway1},${NatGateway2}'
+          - !Ref NatGateway1
+
+  AvailabilityZones:
+    Description: 'Comma-separated list of availability zones used'
+    Value: !If
+      - HasAZ3
+      - !Sub
+        - '${AZ1},${AZ2},${AZ3}'
+        - AZ1: !GetAtt PrivateSubnet1.AvailabilityZone
+          AZ2: !GetAtt PrivateSubnet2.AvailabilityZone
+          AZ3: !GetAtt PrivateSubnet3.AvailabilityZone
+      - !If
+        - HasAZ2
+        - !Sub
+          - '${AZ1},${AZ2}'
+          - AZ1: !GetAtt PrivateSubnet1.AvailabilityZone
+            AZ2: !GetAtt PrivateSubnet2.AvailabilityZone
+        - !GetAtt PrivateSubnet1.AvailabilityZone

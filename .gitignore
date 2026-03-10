@@ -1,2 +1,4 @@
 bin
+rosactl
 coverage.out
+tmp/

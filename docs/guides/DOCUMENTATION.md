@@ -7,7 +7,7 @@ This guide defines the standards and best practices for writing documentation in
 ### 1. Conciseness
 - **Be direct and concise** - Remove unnecessary words
 - **One concept per paragraph** - Don't mix multiple ideas
-- **Use active voice** - "The Lambda invokes the function" not "The function is invoked by Lambda"
+- **Use active voice** - "The CLI invokes the Lambda" not "The Lambda is invoked by the CLI"
 
 ### 2. Visual Over Text
 - **Prioritize diagrams** - Use ASCII diagrams, flowcharts, and swimlanes
@@ -113,8 +113,6 @@ This guide defines the standards and best practices for writing documentation in
 ```
 
 **Examples**:
-- `feature-oidc.md` - OIDC provider management
-- `feature-lambda.md` - Lambda function management
 - `feature-e2e.md` - End-to-end testing
 
 ---
@@ -125,55 +123,57 @@ This guide defines the standards and best practices for writing documentation in
 
 ✅ **Good**:
 ```markdown
-Create a Lambda function:
+Bootstrap the Lambda function:
 ```bash
-rosactl lambda create my-function --handler oidc
+rosactl bootstrap create --image-uri 123456789012.dkr.ecr.us-east-1.amazonaws.com/rosa-cli:latest --region us-east-1
 ```
 
 Output:
 ```
-Successfully created Lambda function: my-function
-ARN: arn:aws:lambda:us-east-1:123456789012:function:my-function
+Creating CloudFormation stack: rosa-regional-platform-bootstrap
+Lambda function created successfully!
+ARN: arn:aws:lambda:us-east-1:123456789012:function:rosa-regional-platform-lambda
 ```
 ```
 
 ❌ **Bad**:
 ```markdown
-You can create a Lambda function by running the command to create it with the handler option set to oidc.
+You can bootstrap the Lambda infrastructure by running the command with the container image URI.
 ```
 
 ### Diagrams
 
 ✅ **Good** (Swimlane diagram):
 ```markdown
-User                CLI             Lambda          AWS
-  |                  |                |              |
-  |-- create cmd --->|                |              |
-  |                  |-- package ---->|              |
-  |                  |                |-- deploy --->|
-  |                  |                |<-- ARN ------|
-  |<--- success -----|                |              |
+User                CLI             CloudFormation   Lambda          IAM
+  |                  |                |              |               |
+  |-- create cmd --->|                |              |               |
+  |                  |-- apply CF --->|              |               |
+  |                  |                |-- invoke --->|               |
+  |                  |                |              |-- create ---->|
+  |                  |                |              |<-- ARN -------|
+  |<--- outputs -----|                |              |               |
 ```
 
 ❌ **Bad** (Wall of text):
 ```markdown
-When the user runs the create command, the CLI packages the code and sends it to Lambda, which then deploys it to AWS and returns an ARN that the CLI shows to the user.
+When the user runs the create command, the CLI applies a CloudFormation stack which invokes the Lambda function, and the Lambda creates IAM resources and returns their ARNs.
 ```
 
 ### Comparisons
 
 ✅ **Good** (Table):
 ```markdown
-| Handler | Purpose | Use Case |
+| Command | Purpose | Use Case |
 |---------|---------|----------|
-| default | Hello world | Testing, demos |
-| oidc | Create OIDC providers | Production identity |
-| oidc-delete | Remove OIDC providers | Cleanup |
+| bootstrap create | Deploy Lambda | One-time setup |
+| cluster-iam create | Create IAM resources | Per cluster |
+| cluster-iam delete | Remove IAM resources | Cleanup |
 ```
 
 ❌ **Bad** (Long paragraphs):
 ```markdown
-The default handler is used for hello world and testing. The oidc handler creates OIDC providers for production identity management. The oidc-delete handler removes OIDC providers for cleanup purposes.
+The bootstrap create command deploys the Lambda function and is used for one-time setup. The cluster-iam create command creates IAM resources for each cluster. The cluster-iam delete command removes IAM resources during cleanup.
 ```
 
 ## Documentation Checklist
@@ -201,14 +201,8 @@ docs/
 │   ├── DEVELOPMENT.md           # Developer setup
 │   └── DOCUMENTATION.md         # This file
 └── specs/
-    ├── OVERVIEW.md              # Project overview
-    ├── REQUIREMENTS.md          # Requirements
-    ├── USER_STORIES.md          # User stories
-    ├── CLI_SPEC.md              # CLI specification
-    ├── TECHNICAL_SPEC.md        # Technical details
-    ├── feature-lambda.md        # Lambda feature spec
-    ├── feature-oidc.md          # OIDC feature spec
     ├── feature-e2e.md           # E2E testing spec
+    ├── reference-gist-1.md      # OIDC/STS flow reference
     └── references.md            # External references
 ```
 
@@ -218,10 +212,10 @@ Follow conventional commits:
 
 ```bash
 # Documentation updates
-git commit -m "docs: update OIDC guide with new examples"
+git commit -m "docs: update cluster IAM guide with examples"
 
 # New documentation
-git commit -m "docs: add troubleshooting guide for S3 timeouts"
+git commit -m "docs: add CloudFormation troubleshooting guide"
 
 # Fix typos
 git commit -m "docs: fix typos in architecture documentation"
@@ -232,46 +226,53 @@ git commit -m "docs: fix typos in architecture documentation"
 ### 1. Too Much Theory, Not Enough Practice
 
 ❌ **Bad**:
-> "The OIDC provider uses the S3-backed discovery document pattern, which is a common approach in cloud-native architectures for implementing federated identity..."
+> "The IAM OIDC provider uses CloudFormation-based declarative infrastructure to establish federated trust relationships with the managed OIDC issuer in the Red Hat control plane..."
 
 ✅ **Good**:
 ```bash
-# Create an OIDC provider
-rosactl oidc create my-cluster --function my-oidc
+# Create cluster IAM resources
+rosactl cluster-iam create my-cluster \
+  --oidc-issuer-url https://d1234.cloudfront.net/my-cluster \
+  --region us-east-1
 
 # What this creates:
-# - S3 bucket: oidc-issuer-my-cluster
-# - Discovery doc: .well-known/openid-configuration
-# - IAM provider: arn:aws:iam::...
+# - IAM OIDC Provider (points to Red Hat's CloudFront)
+# - 7 control plane IAM roles (for operators)
+# - Worker node IAM role + instance profile
 ```
 
 ### 2. Missing Context
 
 ❌ **Bad**:
 ```bash
-rosactl lambda create my-function --handler oidc
+rosactl bootstrap create --image-uri <uri> --region us-east-1
 ```
 
 ✅ **Good**:
 ```bash
-# Create an OIDC management Lambda
-# This Lambda can create S3-backed OIDC issuers
-rosactl lambda create my-function --handler oidc
+# First, push the container image to ECR
+docker build -f Dockerfile -t rosa-cli:latest .
+docker tag rosa-cli:latest 123456789012.dkr.ecr.us-east-1.amazonaws.com/rosa-cli:latest
+docker push 123456789012.dkr.ecr.us-east-1.amazonaws.com/rosa-cli:latest
 
-# Private key saved to: /tmp/oidc-private-key-abc123.pem
-# Keep this secure! It signs JWTs for the OIDC issuer.
+# Then bootstrap the Lambda infrastructure (one-time per region)
+rosactl bootstrap create \
+  --image-uri 123456789012.dkr.ecr.us-east-1.amazonaws.com/rosa-cli:latest \
+  --region us-east-1
 ```
 
 ### 3. Outdated Examples
 
-❌ **Bad** (deprecated syntax):
+❌ **Bad** (references deleted commands):
 ```bash
-rosactl lambda create oidc  # Old: name-based detection
+rosactl oidc create my-cluster  # This command no longer exists
 ```
 
 ✅ **Good** (current syntax):
 ```bash
-rosactl lambda create my-oidc --handler oidc  # New: explicit --handler flag
+rosactl cluster-iam create my-cluster \
+  --oidc-issuer-url https://d1234.cloudfront.net/my-cluster \
+  --region us-east-1
 ```
 
 ## References
