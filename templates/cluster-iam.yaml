@@ -375,13 +375,6 @@ Resources:
       InstanceProfileName: !Sub '${ClusterName}-ROSA-Worker-Role'
       Roles:
         - !Ref WorkerNodeRole
-      Tags:
-        - Key: Cluster
-          Value: !Ref ClusterName
-        - Key: ManagedBy
-          Value: rosactl
-        - Key: red-hat-managed
-          Value: 'true'
 
 Outputs:
   OIDCProviderArn:
