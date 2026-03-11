@@ -54,6 +54,20 @@ Resources:
                   StringEquals:
                     iam:PassedToService: cloudformation.amazonaws.com
 
+              - Sid: PassRoleForInstanceProfile
+                Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*-ROSA-Worker-Role'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*-ingress'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*-cloud-controller-manager'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*-ebs-csi'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*-image-registry'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*-network-config'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*-control-plane-operator'
+                  - !Sub 'arn:aws:iam::${AWS::AccountId}:role/*-node-pool-management'
+
               - Sid: IAMResourceManagement
                 Effect: Allow
                 Action:
@@ -134,6 +148,7 @@ Resources:
                   - route53:ListTagsForResource
                   - route53:AssociateVPCWithHostedZone
                   - route53:DisassociateVPCFromHostedZone
+                  - route53:GetChange
                 Resource: '*'
       Tags:
         - Key: ManagedBy
@@ -154,9 +169,6 @@ Resources:
       MemorySize: 512
       Architectures:
         - x86_64
-      Environment:
-        Variables:
-          AWS_REGION: !Ref AWS::Region
       Tags:
         - Key: ManagedBy
           Value: rosactl
