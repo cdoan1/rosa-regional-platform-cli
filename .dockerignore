@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+docs/
+
+# Test files
+*_test.go
+test/
+
+# Build artifacts
+bin/
+dist/
+.task/
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+*.log
+*.tmp
+/tmp/
+
+# CI/CD
+.github/
+ci/
+
+./rosactl

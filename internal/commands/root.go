@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/lambda"
-	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/oidc"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/bootstrap"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/clusteriam"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/clustervpc"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/version"
 	"github.com/spf13/cobra"
 )
@@ -31,8 +32,9 @@ func init() {
 	rootCmd.PersistentFlags().String("profile", "", "AWS profile (overrides default)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
 
-	rootCmd.AddCommand(lambda.NewLambdaCommand())
-	rootCmd.AddCommand(oidc.NewOIDCCommand())
+	rootCmd.AddCommand(bootstrap.NewBootstrapCommand())
+	rootCmd.AddCommand(clusteriam.NewClusterIAMCommand())
+	rootCmd.AddCommand(clustervpc.NewClusterVPCCommand())
 	rootCmd.AddCommand(version.NewVersionCommand())
 }
 

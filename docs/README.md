@@ -1,16 +1,14 @@
 # Project Documentation
 
-Welcome to the rosactl documentation! This directory contains all project documentation, specifications, and guides.
+Welcome to the rosactl documentation! This directory contains all project documentation, architecture guides, and references.
 
 ## 📚 Quick Links
 
 | What do you want to do? | Start here |
 |--------------------------|------------|
-| **Learn what rosactl is** | [specs/OVERVIEW.md](specs/OVERVIEW.md) |
 | **Understand the architecture** | [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) |
 | **Build and contribute** | [guides/DEVELOPMENT.md](guides/DEVELOPMENT.md) |
 | **Manage versions** | [guides/VERSIONING.md](guides/VERSIONING.md) |
-| **Implement OIDC features** | [specs/feature-oidc.md](specs/feature-oidc.md) |
 | **Run end-to-end tests** | [specs/feature-e2e.md](specs/feature-e2e.md) or [../test/e2e/README.md](../test/e2e/README.md) |
 
 ## 📁 Documentation Structure
@@ -25,26 +23,21 @@ docs/
 │   ├── DEVELOPMENT.md           # Developer setup and workflows
 │   ├── VERSIONING.md            # Semantic versioning guide
 │   └── DOCUMENTATION.md         # Documentation writing guidelines
-└── specs/                       # Feature specifications and requirements
-    ├── OVERVIEW.md              # Project overview
-    ├── REQUIREMENTS.md          # Functional requirements
-    ├── USER_STORIES.md          # User stories and use cases
-    ├── CLI_SPEC.md              # CLI command specifications
-    ├── TECHNICAL_SPEC.md        # Technical implementation details
-    ├── feature-lambda.md        # Lambda management feature spec
-    ├── feature-oidc.md          # OIDC provider feature spec
+└── specs/                       # Feature specifications and references
     ├── feature-e2e.md           # End-to-end testing spec
-    └── references.md            # External references and links
+    ├── reference-gist-1.md      # OIDC/STS authentication flow reference
+    └── references.md            # External project references
 ```
 
 ## 🏗️ Architecture Documentation
 
 ### [ARCHITECTURE.md](architecture/ARCHITECTURE.md)
 Complete system architecture including:
-- Component diagrams and data flow
-- AWS service integrations (Lambda, S3, IAM)
-- RSA private key management
-- Security architecture
+- Container-based Lambda + CloudFormation approach
+- Managed OIDC architecture (Red Hat-hosted)
+- Dual-mode Go binary (CLI and Lambda)
+- CloudFormation templates for IAM resources
+- Security architecture and trust chains
 - Design trade-offs and decisions
 
 ### [DECISIONS.md](architecture/DECISIONS.md)
@@ -75,39 +68,28 @@ Documentation writing guidelines:
 - How to write effective docs
 - Examples and anti-patterns
 
-## 📋 Specifications
-
-### Core Specifications
-
-| Document | Purpose |
-|----------|---------|
-| [OVERVIEW.md](specs/OVERVIEW.md) | High-level project goals and scope |
-| [REQUIREMENTS.md](specs/REQUIREMENTS.md) | Functional and non-functional requirements |
-| [USER_STORIES.md](specs/USER_STORIES.md) | User personas and use cases |
-| [CLI_SPEC.md](specs/CLI_SPEC.md) | Command-line interface design |
-| [TECHNICAL_SPEC.md](specs/TECHNICAL_SPEC.md) | Implementation details and APIs |
+## 📋 Specifications & References
 
 ### Feature Specifications
 
 | Document | Purpose |
 |----------|---------|
-| [feature-lambda.md](specs/feature-lambda.md) | Lambda function management (create, invoke, delete, list, versions) |
-| [feature-oidc.md](specs/feature-oidc.md) | S3-backed OIDC provider management |
-| [feature-e2e.md](specs/feature-e2e.md) | End-to-end testing framework and test cases |
+| [feature-e2e.md](specs/feature-e2e.md) | End-to-end testing framework using Ginkgo |
 
 ### References
 
 | Document | Purpose |
 |----------|---------|
-| [references.md](specs/references.md) | External links, APIs, and documentation |
+| [reference-gist-1.md](specs/reference-gist-1.md) | Deep dive into OIDC/STS cross-account authentication in ROSA HCP |
+| [references.md](specs/references.md) | External project references (hypershift, rosa, rosa-regional-platform-api) |
 
 ## 🚀 Getting Started
 
 ### For New Users
 
-1. Read [OVERVIEW.md](specs/OVERVIEW.md) to understand what rosactl does
+1. Read [ARCHITECTURE.md](architecture/ARCHITECTURE.md) to understand the system
 2. Check [../README.md](../README.md) for installation and quick start
-3. Review [specs/CLI_SPEC.md](specs/CLI_SPEC.md) for command reference
+3. Review the main README for command reference
 
 ### For Contributors
 
@@ -116,14 +98,10 @@ Documentation writing guidelines:
 3. Follow [VERSIONING.md](guides/VERSIONING.md) for commit message format
 4. Check [DOCUMENTATION.md](guides/DOCUMENTATION.md) for documentation standards
 
-### For Feature Implementation
+### For Testing
 
-1. Read the relevant feature spec:
-   - Lambda: [feature-lambda.md](specs/feature-lambda.md)
-   - OIDC: [feature-oidc.md](specs/feature-oidc.md)
-   - Testing: [feature-e2e.md](specs/feature-e2e.md)
-2. Review [ARCHITECTURE.md](architecture/ARCHITECTURE.md) for integration points
-3. Check [TECHNICAL_SPEC.md](specs/TECHNICAL_SPEC.md) for implementation details
+1. Read [feature-e2e.md](specs/feature-e2e.md) for E2E test requirements
+2. Check [../test/e2e/README.md](../test/e2e/README.md) for test setup and execution
 
 ## 🔄 Documentation Lifecycle
 
@@ -132,7 +110,7 @@ Documentation writing guidelines:
 1. **Choose the right location**:
    - Architecture design → `architecture/`
    - User/developer guide → `guides/`
-   - Feature spec → `specs/`
+   - Feature spec or reference → `specs/`
 
 2. **Follow the style guide**: See [DOCUMENTATION.md](guides/DOCUMENTATION.md)
 
@@ -140,7 +118,7 @@ Documentation writing guidelines:
 
 4. **Use conventional commits**:
    ```bash
-   git commit -m "docs: add JWT signing guide"
+   git commit -m "docs: add VPC deployment guide"
    ```
 
 ### Updating Existing Documentation
@@ -163,17 +141,6 @@ Before merging documentation changes:
 - [ ] Diagrams render correctly
 - [ ] Added to this index (if new file)
 
-## 📊 Documentation Status
-
-| Category | Status | Last Updated |
-|----------|--------|--------------|
-| Architecture | ✅ Complete | 2026-02-22 |
-| Developer Guides | ✅ Complete | 2026-02-22 |
-| Feature Specs | ✅ Complete | 2026-02-22 |
-| User Stories | ⚠️ Needs Update | - |
-| Requirements | ⚠️ Needs Update | - |
-| Technical Spec | ⚠️ Needs Update | - |
-
 ## 🤝 Contributing to Documentation
 
 Documentation improvements are always welcome! To contribute:
@@ -189,9 +156,9 @@ See [DOCUMENTATION.md](guides/DOCUMENTATION.md) for detailed guidelines.
 
 ### File Naming
 
-- Use `UPPERCASE.md` for top-level docs (OVERVIEW.md, README.md)
-- Use `lowercase-with-dashes.md` for feature specs (feature-oidc.md)
-- Use `PascalCase.md` for specific topics (VERSIONING.md)
+- Use `UPPERCASE.md` for top-level docs (ARCHITECTURE.md, README.md)
+- Use `lowercase-with-dashes.md` for feature specs (feature-e2e.md)
+- Use descriptive names for references (reference-gist-1.md)
 
 ### Markdown Style
 
@@ -213,6 +180,8 @@ See [DOCUMENTATION.md](guides/DOCUMENTATION.md) for detailed guidelines.
 - [E2E Test README](../test/e2e/README.md) - End-to-end testing guide
 - [Makefile](../Makefile) - Build targets and commands
 - [GitHub Repository](https://github.com/openshift-online/rosa-regional-platform-cli)
+- [ROSA Regional Platform Terraform](https://github.com/openshift-online/rosa-regional-platform) - Reference implementation
+- [HyperShift](https://github.com/openshift/hypershift) - OIDC implementation reference
 
 ---
 

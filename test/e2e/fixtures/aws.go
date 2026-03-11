@@ -7,17 +7,13 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // AWSTestHelper provides direct AWS API access for test verification
 type AWSTestHelper struct {
 	LambdaClient *lambda.Client
-	ECRClient    *ecr.Client
-	S3Client     *s3.Client
 	IAMClient    *iam.Client
 	Region       string
 }
@@ -33,8 +29,6 @@ func NewAWSTestHelper(ctx context.Context) (*AWSTestHelper, error) {
 
 	return &AWSTestHelper{
 		LambdaClient: lambda.NewFromConfig(cfg),
-		ECRClient:    ecr.NewFromConfig(cfg),
-		S3Client:     s3.NewFromConfig(cfg),
 		IAMClient:    iam.NewFromConfig(cfg),
 		Region:       cfg.Region,
 	}, nil
@@ -188,23 +182,6 @@ func (h *AWSTestHelper) ListFunctions(ctx context.Context) ([]string, error) {
 	return functionNames, nil
 }
 
-// VerifyECRRepositoryExists checks if an ECR repository exists
-func (h *AWSTestHelper) VerifyECRRepositoryExists(ctx context.Context, repositoryName string) (bool, error) {
-	_, err := h.ECRClient.DescribeRepositories(ctx, &ecr.DescribeRepositoriesInput{
-		RepositoryNames: []string{repositoryName},
-	})
-
-	if err != nil {
-		// If repository not found, return false without error
-		if isRepositoryNotFoundError(err) {
-			return false, nil
-		}
-		return false, err
-	}
-
-	return true, nil
-}
-
 // GetFunctionVersions returns all versions of a Lambda function
 func (h *AWSTestHelper) GetFunctionVersions(ctx context.Context, functionName string) ([]string, error) {
 	var versions []string
@@ -238,16 +215,6 @@ func isResourceNotFoundError(err error) bool {
 		containsString(errStr, "does not exist")
 }
 
-// isRepositoryNotFoundError checks if the error indicates a repository was not found
-func isRepositoryNotFoundError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return containsString(errStr, "RepositoryNotFoundException") ||
-		containsString(errStr, "RepositoryNotFound")
-}
-
 // containsString checks if a string contains a substring
 func containsString(s, substr string) bool {
 	if len(substr) == 0 {
@@ -278,47 +245,6 @@ func (h *AWSTestHelper) GetFunctionEnvironment(ctx context.Context, functionName
 	}
 
 	return output.Configuration.Environment.Variables, nil
-}
-
-// VerifyS3BucketExists checks if an S3 bucket exists
-func (h *AWSTestHelper) VerifyS3BucketExists(ctx context.Context, bucketName string) (bool, error) {
-	_, err := h.S3Client.HeadBucket(ctx, &s3.HeadBucketInput{
-		Bucket: aws.String(bucketName),
-	})
-	if err != nil {
-		// Check if it's a not found error
-		errStr := err.Error()
-		if containsString(errStr, "NotFound") ||
-			containsString(errStr, "NoSuchBucket") ||
-			containsString(errStr, "404") {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-// VerifyOIDCDiscoveryExists checks if OIDC discovery documents exist in S3 bucket
-func (h *AWSTestHelper) VerifyOIDCDiscoveryExists(ctx context.Context, bucketName string) (bool, error) {
-	// Check for .well-known/openid-configuration
-	_, err := h.S3Client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String(".well-known/openid-configuration"),
-	})
-	if err != nil {
-		return false, nil
-	}
-
-	// Check for keys.json
-	_, err = h.S3Client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(bucketName),
-		Key:    aws.String("keys.json"),
-	})
-	if err != nil {
-		return false, nil
-	}
-
-	return true, nil
 }
 
 // VerifyOIDCProviderExists checks if an IAM OIDC provider exists for the given issuer URL
