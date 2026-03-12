@@ -17,8 +17,7 @@ Welcome to the rosactl documentation! This directory contains all project docume
 docs/
 ├── README.md                    # This file
 ├── architecture/                # System design and architecture
-│   ├── ARCHITECTURE.md          # System architecture overview
-│   └── DECISIONS.md             # Architecture decision records (ADRs)
+│   └── ARCHITECTURE.md          # System architecture overview
 ├── guides/                      # User and developer guides
 │   ├── DEVELOPMENT.md           # Developer setup and workflows
 │   ├── VERSIONING.md            # Semantic versioning guide
@@ -33,18 +32,12 @@ docs/
 
 ### [ARCHITECTURE.md](architecture/ARCHITECTURE.md)
 Complete system architecture including:
-- Container-based Lambda + CloudFormation approach
+- Direct CloudFormation management with optional Lambda
 - Managed OIDC architecture (Red Hat-hosted)
 - Dual-mode Go binary (CLI and Lambda)
-- CloudFormation templates for IAM resources
+- Embedded CloudFormation templates
 - Security architecture and trust chains
-- Design trade-offs and decisions
-
-### [DECISIONS.md](architecture/DECISIONS.md)
-Architecture decision records (ADRs) documenting:
-- Why certain technical choices were made
-- Alternatives considered
-- Trade-offs and consequences
+- Design trade-offs and architectural decisions
 
 ## 📖 User & Developer Guides
 

@@ -350,7 +350,6 @@ func NewCommand() *cobra.Command {
 
 - `README.md` - Main project documentation
 - `docs/architecture/ARCHITECTURE.md` - System architecture and components
-- `docs/architecture/DECISIONS.md` - Architecture decision records (ADRs)
 - `docs/guides/DEVELOPMENT.md` - This file
 - `docs/guides/VERSIONING.md` - Semantic versioning guide
 - `test/localstack/README.md` - LocalStack testing guide
@@ -360,16 +359,15 @@ func NewCommand() *cobra.Command {
 When making changes that affect user-facing behavior or architecture:
 
 1. Update README.md if adding/changing CLI commands
-2. Update ARCHITECTURE.md if changing system design
-3. Add ADR to DECISIONS.md for significant architectural changes
-4. Update DEVELOPMENT.md for development workflow changes
-5. Update inline code documentation with `//` comments
+2. Update ARCHITECTURE.md if changing system design or architectural decisions
+3. Update DEVELOPMENT.md for development workflow changes
+4. Update inline code documentation with `//` comments
 
 ### Documentation Best Practices
 
 - Keep examples up-to-date with current CLI syntax
 - Use actual command output in examples (not made-up placeholders)
-- Document breaking changes in ADRs
+- Document breaking changes in commit messages
 - Update architecture diagrams when components change
 - Link related documentation sections
 
