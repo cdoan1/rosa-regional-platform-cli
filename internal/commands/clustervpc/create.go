@@ -2,18 +2,22 @@ package clustervpc
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/lambda"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/cloudformation"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/cloudformation/templates"
 	"github.com/spf13/cobra"
 )
 
 type createOptions struct {
 	clusterName        string
 	region             string
-	lambdaFunction     string
 	vpcCidr            string
 	publicSubnetCidrs  string
 	privateSubnetCidrs string
@@ -29,9 +33,8 @@ func newCreateCommand() *cobra.Command {
 		Short: "Create cluster VPC resources",
 		Long: `Create VPC networking resources for a hosted cluster.
 
-This command invokes the Lambda function to create a CloudFormation stack
-containing VPC, subnets, NAT gateways, routing, security groups, and
-Route53 private hosted zone.
+This command creates a CloudFormation stack containing VPC, subnets, NAT gateways,
+routing, security groups, and Route53 private hosted zone.
 
 Example:
   rosactl cluster-vpc create my-cluster --region us-east-1
@@ -56,7 +59,6 @@ Example:
 	}
 
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
-	cmd.Flags().StringVar(&opts.lambdaFunction, "lambda-function", defaultLambdaFunction, "Name of the Lambda function")
 	cmd.Flags().StringVar(&opts.vpcCidr, "vpc-cidr", "10.0.0.0/16", "CIDR block for the VPC")
 	cmd.Flags().StringVar(&opts.publicSubnetCidrs, "public-subnet-cidrs", "10.0.101.0/24,10.0.102.0/24,10.0.103.0/24", "Comma-separated public subnet CIDRs")
 	cmd.Flags().StringVar(&opts.privateSubnetCidrs, "private-subnet-cidrs", "10.0.0.0/19,10.0.32.0/19,10.0.64.0/19", "Comma-separated private subnet CIDRs")
@@ -69,79 +71,168 @@ Example:
 }
 
 func runCreate(ctx context.Context, opts *createOptions) error {
-	fmt.Printf("Creating cluster VPC resources for: %s\n", opts.clusterName)
+	fmt.Printf("🌐 Creating cluster VPC resources for: %s\n", opts.clusterName)
 	fmt.Printf("   Region: %s\n", opts.region)
 	fmt.Printf("   VPC CIDR: %s\n", opts.vpcCidr)
 	fmt.Printf("   Single NAT Gateway: %t\n", opts.singleNatGateway)
 	fmt.Println()
 
-	// Create Lambda client
-	lambdaClient, err := lambda.NewClient(ctx)
+	// Read CloudFormation template
+	fmt.Println("📄 Loading CloudFormation template...")
+	templateBody, err := templates.Read("cluster-vpc.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to create Lambda client: %w", err)
+		return fmt.Errorf("failed to read template: %w", err)
 	}
+
+	// Load AWS config
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(opts.region))
+	if err != nil {
+		return fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	// Create CloudFormation client
+	cfnClient := cloudformation.NewClient(cfg)
 
 	// Parse CIDR lists
 	publicSubnets := strings.Split(opts.publicSubnetCidrs, ",")
 	privateSubnets := strings.Split(opts.privateSubnetCidrs, ",")
 
-	// Parse availability zones if provided
-	var azs []string
+	// Prepare stack parameters
+	stackName := fmt.Sprintf("rosa-%s-vpc", opts.clusterName)
+	params := map[string]string{
+		"ClusterName":         opts.clusterName,
+		"VpcCidr":            opts.vpcCidr,
+		"PublicSubnetCidrs":  strings.Join(publicSubnets, ","),
+		"PrivateSubnetCidrs": strings.Join(privateSubnets, ","),
+		"SingleNatGateway":   fmt.Sprintf("%t", opts.singleNatGateway),
+	}
+
+	// Parse and add availability zones if provided
 	if opts.availabilityZones != "" {
-		azs = strings.Split(opts.availabilityZones, ",")
+		azs := strings.Split(opts.availabilityZones, ",")
+		if len(azs) >= 1 {
+			params["AvailabilityZone1"] = azs[0]
+		}
+		if len(azs) >= 2 {
+			params["AvailabilityZone2"] = azs[1]
+		}
+		if len(azs) >= 3 {
+			params["AvailabilityZone3"] = azs[2]
+		}
 	}
 
-	// Prepare Lambda payload
-	payload := map[string]interface{}{
-		"action":              "apply-cluster-vpc",
-		"cluster_name":        opts.clusterName,
-		"vpc_cidr":            opts.vpcCidr,
-		"public_subnet_cidrs": publicSubnets,
-		"private_subnet_cidrs": privateSubnets,
-		"single_nat_gateway":  opts.singleNatGateway,
-	}
-	if len(azs) > 0 {
-		payload["availability_zones"] = azs
-	}
-
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
-	}
-
-	fmt.Printf("Invoking Lambda function: %s\n", opts.lambdaFunction)
-
-	// Invoke Lambda
-	result, err := lambdaClient.InvokeFunctionWithPayload(ctx, opts.lambdaFunction, payloadBytes)
-	if err != nil {
-		return fmt.Errorf("failed to invoke Lambda: %w", err)
+	createParams := &cloudformation.CreateStackParams{
+		StackName:    stackName,
+		TemplateBody: templateBody,
+		Parameters:   params,
+		Tags: []types.Tag{
+			{
+				Key:   aws.String("Cluster"),
+				Value: aws.String(opts.clusterName),
+			},
+			{
+				Key:   aws.String("ManagedBy"),
+				Value: aws.String("rosactl"),
+			},
+			{
+				Key:   aws.String("red-hat-managed"),
+				Value: aws.String("true"),
+			},
+		},
+		WaitTimeout: 15 * time.Minute,
 	}
 
-	// Parse response
-	var response lambdaResponse
-	if err := json.Unmarshal(result, &response); err != nil {
-		return fmt.Errorf("failed to parse Lambda response: %w", err)
-	}
-
-	// Check for errors
-	if response.Error != "" {
-		return fmt.Errorf("Lambda execution failed: %s", response.Error)
-	}
-
-	fmt.Println("Cluster VPC resources created successfully!")
+	fmt.Printf("☁️  Creating CloudFormation stack: %s\n", stackName)
+	fmt.Println("   This may take several minutes...")
 	fmt.Println()
-	fmt.Println("Stack ID:", response.StackID)
+
+	// Create stack
+	output, err := cfnClient.CreateStack(ctx, createParams)
+	if err != nil {
+		// Check if stack already exists, try update instead
+		var alreadyExistsErr *cloudformation.StackAlreadyExistsError
+		if errors.As(err, &alreadyExistsErr) {
+			fmt.Println("ℹ️  Stack already exists, attempting update...")
+			return updateVPCStack(ctx, cfnClient, stackName, templateBody, params)
+		}
+
+		// Get stack events to show what failed
+		fmt.Println()
+		fmt.Println("❌ Stack creation failed. Recent events:")
+		events, evtErr := cfnClient.GetStackEvents(ctx, stackName, 10)
+		if evtErr == nil && len(events) > 0 {
+			for _, event := range events {
+				if event.ResourceStatus == "CREATE_FAILED" || event.ResourceStatusReason != "" {
+					fmt.Printf("   • %s: %s", event.LogicalResourceID, event.ResourceStatus)
+					if event.ResourceStatusReason != "" {
+						fmt.Printf(" - %s", event.ResourceStatusReason)
+					}
+					fmt.Println()
+				}
+			}
+		}
+		fmt.Println()
+
+		return fmt.Errorf("failed to create stack: %w", err)
+	}
+
+	fmt.Println("✅ Cluster VPC resources created successfully!")
+	fmt.Printf("   Stack ID: %s\n", output.StackID)
 	fmt.Println()
-	fmt.Println("Outputs:")
-	for key, value := range response.Outputs {
-		fmt.Printf("  %s: %s\n", key, value)
+
+	if len(output.Outputs) > 0 {
+		fmt.Println("Outputs:")
+		for key, value := range output.Outputs {
+			fmt.Printf("  %s: %s\n", key, value)
+		}
 	}
 
 	return nil
 }
 
-type lambdaResponse struct {
-	StackID string            `json:"stack_id"`
-	Outputs map[string]string `json:"outputs"`
-	Error   string            `json:"error,omitempty"`
+// updateVPCStack updates an existing cluster VPC CloudFormation stack
+func updateVPCStack(ctx context.Context, cfnClient *cloudformation.Client,
+	stackName, templateBody string, params map[string]string) error {
+	updateParams := &cloudformation.UpdateStackParams{
+		StackName:    stackName,
+		TemplateBody: templateBody,
+		Parameters:   params,
+		WaitTimeout:  15 * time.Minute,
+	}
+
+	fmt.Println("   Updating stack...")
+	output, err := cfnClient.UpdateStack(ctx, updateParams)
+	if err != nil {
+		// Check if no changes are needed
+		var noChangesErr *cloudformation.NoChangesError
+		if errors.As(err, &noChangesErr) {
+			fmt.Println("ℹ️  No changes needed, stack is up to date")
+			// Still get outputs
+			stackOutput, err := cfnClient.GetStackOutputs(ctx, stackName)
+			if err != nil {
+				return fmt.Errorf("failed to get stack outputs: %w", err)
+			}
+
+			fmt.Println()
+			fmt.Println("Stack Outputs:")
+			for key, value := range stackOutput.Outputs {
+				fmt.Printf("  %s: %s\n", key, value)
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to update stack: %w", err)
+	}
+
+	fmt.Println("✅ Cluster VPC resources updated successfully!")
+	fmt.Printf("   Stack ID: %s\n", output.StackID)
+	fmt.Println()
+
+	if len(output.Outputs) > 0 {
+		fmt.Println("Updated Outputs:")
+		for key, value := range output.Outputs {
+			fmt.Printf("  %s: %s\n", key, value)
+		}
+	}
+
+	return nil
 }

@@ -2,17 +2,18 @@ package clustervpc
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
-	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/lambda"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/cloudformation"
 	"github.com/spf13/cobra"
 )
 
 type deleteOptions struct {
-	clusterName    string
-	region         string
-	lambdaFunction string
+	clusterName string
+	region      string
 }
 
 func newDeleteCommand() *cobra.Command {
@@ -23,8 +24,7 @@ func newDeleteCommand() *cobra.Command {
 		Short: "Delete cluster VPC resources",
 		Long: `Delete VPC networking resources for a hosted cluster.
 
-This command invokes the Lambda function to delete the CloudFormation stack
-containing all VPC resources.
+This command deletes the CloudFormation stack containing all VPC resources.
 
 Example:
   rosactl cluster-vpc delete my-cluster --region us-east-1`,
@@ -36,7 +36,6 @@ Example:
 	}
 
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
-	cmd.Flags().StringVar(&opts.lambdaFunction, "lambda-function", defaultLambdaFunction, "Name of the Lambda function")
 
 	cmd.MarkFlagRequired("region")
 
@@ -44,47 +43,38 @@ Example:
 }
 
 func runDelete(ctx context.Context, opts *deleteOptions) error {
-	fmt.Printf("Deleting cluster VPC resources for: %s\n", opts.clusterName)
+	fmt.Printf("🗑️  Deleting cluster VPC resources for: %s\n", opts.clusterName)
 	fmt.Printf("   Region: %s\n", opts.region)
 	fmt.Println()
 
-	// Create Lambda client
-	lambdaClient, err := lambda.NewClient(ctx)
+	// Load AWS config
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(opts.region))
 	if err != nil {
-		return fmt.Errorf("failed to create Lambda client: %w", err)
+		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	// Prepare Lambda payload
-	payload := map[string]string{
-		"action":       "delete-cluster-vpc",
-		"cluster_name": opts.clusterName,
-	}
+	// Create CloudFormation client
+	cfnClient := cloudformation.NewClient(cfg)
 
-	payloadBytes, err := json.Marshal(payload)
+	// Delete stack
+	stackName := fmt.Sprintf("rosa-%s-vpc", opts.clusterName)
+
+	fmt.Printf("☁️  Deleting CloudFormation stack: %s\n", stackName)
+	fmt.Println("   This may take several minutes...")
+	fmt.Println()
+
+	err = cfnClient.DeleteStack(ctx, stackName, 15*time.Minute)
 	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
+		// Check if stack doesn't exist
+		var notFoundErr *cloudformation.StackNotFoundError
+		if errors.As(err, &notFoundErr) {
+			fmt.Println("ℹ️  Stack not found, may have been already deleted")
+			return nil
+		}
+		return fmt.Errorf("failed to delete stack: %w", err)
 	}
 
-	fmt.Printf("Invoking Lambda function: %s\n", opts.lambdaFunction)
-
-	// Invoke Lambda
-	result, err := lambdaClient.InvokeFunctionWithPayload(ctx, opts.lambdaFunction, payloadBytes)
-	if err != nil {
-		return fmt.Errorf("failed to invoke Lambda: %w", err)
-	}
-
-	// Parse response
-	var response lambdaResponse
-	if err := json.Unmarshal(result, &response); err != nil {
-		return fmt.Errorf("failed to parse Lambda response: %w", err)
-	}
-
-	// Check for errors
-	if response.Error != "" {
-		return fmt.Errorf("Lambda execution failed: %s", response.Error)
-	}
-
-	fmt.Println("Cluster VPC resources deleted successfully!")
+	fmt.Println("✅ Cluster VPC resources deleted successfully!")
 
 	return nil
 }

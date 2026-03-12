@@ -1,10 +1,11 @@
-.PHONY: all build clean install test test-unit test-e2e test-all test-deps help release release-dry-run fmt fmt-check vet lint verify
+.PHONY: all build clean install test test-localstack test-deps help release release-dry-run fmt fmt-check vet lint verify docker-build localstack-up localstack-down localstack-logs localstack-health tidy
 
 BINARY_NAME=rosactl
 BUILD_DIR=./bin
 INSTALL_DIR=/usr/local/bin
+IMAGE_NAME=rosa-regional-platform-cli
+IMAGE_TAG=$(shell tag=$$(git describe --tags --exact-match 2>/dev/null); if [ -n "$$tag" ]; then echo "$$tag" | sed 's/^v//'; else echo "dev"; fi)
 GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-# Get version from latest git tag, fallback to 0.1.0 if no tags exist
 VERSION=$(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.1.0")
 LDFLAGS=-ldflags "-X github.com/openshift-online/rosa-regional-platform-cli/internal/commands/version.GitCommit=$(GIT_COMMIT) -X github.com/openshift-online/rosa-regional-platform-cli/internal/commands/version.Version=$(VERSION)"
 
@@ -14,14 +15,25 @@ all: fmt vet lint test build
 
 help:
 	@echo "Available targets:"
+	@echo ""
+	@echo "Build & Install:"
 	@echo "  all             - Run all checks (fmt, vet, lint, test, build)"
 	@echo "  build           - Build the rosactl binary"
-	@echo "  clean           - Remove built binaries"
+	@echo "  clean           - Remove built binaries and test artifacts"
 	@echo "  install         - Install rosactl to $(INSTALL_DIR)"
-	@echo "  test            - Run unit tests (default, no AWS required)"
-	@echo "  test-e2e        - Run e2e tests (requires AWS_PROFILE)"
-	@echo "  test-deps       - Install test dependencies"
 	@echo "  tidy            - Tidy go modules"
+	@echo ""
+	@echo "Testing:"
+	@echo "  test            - Run unit tests"
+	@echo "  test-localstack - Run integration tests against LocalStack"
+	@echo "  test-deps       - Install test dependencies (Ginkgo)"
+	@echo ""
+	@echo "Docker & LocalStack:"
+	@echo "  docker-build    - Build Lambda container image"
+	@echo "  localstack-up   - Start LocalStack"
+	@echo "  localstack-down - Stop LocalStack and remove volumes"
+	@echo "  localstack-logs - View LocalStack logs"
+	@echo "  localstack-health - Check LocalStack health"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  fmt             - Format Go code with gofmt"
@@ -30,7 +42,7 @@ help:
 	@echo "  lint            - Run golangci-lint"
 	@echo "  verify          - Run all checks (fmt-check, vet, lint)"
 	@echo ""
-	@echo "Version Management (Semantic Versioning):"
+	@echo "Version Management:"
 	@echo "  release-dry-run - Show what next version would be (dry-run)"
 	@echo "  release         - Create semantic version release (uses conventional commits)"
 	@echo ""
@@ -38,46 +50,74 @@ help:
 
 build:
 	@echo "Building $(BINARY_NAME)..."
+	@mkdir -p $(BUILD_DIR)
 	@go build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/rosactl
-	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
+	@echo "✓ Build complete: $(BUILD_DIR)/$(BINARY_NAME)"
 
 clean:
 	@echo "Cleaning up..."
 	@rm -f $(BUILD_DIR)/$(BINARY_NAME)
-	@echo "Clean complete"
+	@rm -f coverage.out
+	@rm -f rosactl
+	@echo "✓ Clean complete"
 
 install: build
 	@echo "Installing $(BINARY_NAME) to $(INSTALL_DIR)..."
 	@cp $(BUILD_DIR)/$(BINARY_NAME) $(INSTALL_DIR)/$(BINARY_NAME)
-	@echo "Installation complete"
+	@echo "✓ Installation complete"
+
+tidy:
+	@echo "Tidying go modules..."
+	@go mod tidy
+	@echo "✓ Tidy complete"
 
 test:
 	@echo "Running unit tests..."
 	@go test -v -race -coverprofile=coverage.out ./internal/... ./cmd/...
 	@echo "✓ Unit tests passed"
 
-test-e2e: build
-	@echo "Running e2e tests..."
-	@if [ -z "$$AWS_PROFILE" ]; then \
-		echo "Error: AWS_PROFILE environment variable must be set"; \
-		echo "Example: export AWS_PROFILE=your-profile-name"; \
-		exit 1; \
-	fi
-	@E2E_BINARY_PATH=$$(pwd)/$(BUILD_DIR)/$(BINARY_NAME) \
-		ginkgo -v --trace --timeout=15m ./test/e2e
-	@echo "✓ E2E tests passed"
+test-localstack:
+	@echo "Running LocalStack integration tests..."
+	@./test/localstack/run-localstack-tests.sh
 
 test-deps:
 	@echo "Installing test dependencies..."
-	@go get github.com/onsi/ginkgo/v2
-	@go get github.com/onsi/gomega
 	@go install github.com/onsi/ginkgo/v2/ginkgo@latest
-	@echo "Test dependencies installed"
+	@echo "✓ Test dependencies installed (Ginkgo)"
 
-tidy:
-	@echo "Tidying go modules..."
-	@go mod tidy
-	@echo "Tidy complete"
+# Docker targets
+docker-build:
+	@echo "Building Docker image: $(IMAGE_NAME):$(IMAGE_TAG)"
+	@docker build -t $(IMAGE_NAME):$(IMAGE_TAG) .
+	@echo "✓ Docker image built: $(IMAGE_NAME):$(IMAGE_TAG)"
+
+# LocalStack targets
+localstack-up:
+	@echo "Starting LocalStack..."
+	@docker-compose -f docker-compose.localstack.yaml up -d
+	@echo "Waiting for LocalStack to be ready..."
+	@for i in $$(seq 1 30); do \
+		if curl -s http://localhost:4566/_localstack/health > /dev/null 2>&1; then \
+			echo "✓ LocalStack is ready"; \
+			exit 0; \
+		fi; \
+		echo -n "."; \
+		sleep 1; \
+	done; \
+	echo ""; \
+	echo "⚠️  LocalStack may not be ready yet. Check with 'make localstack-health'"
+
+localstack-down:
+	@echo "Stopping LocalStack..."
+	@docker-compose -f docker-compose.localstack.yaml down -v
+	@echo "✓ LocalStack stopped"
+
+localstack-logs:
+	@docker-compose -f docker-compose.localstack.yaml logs -f
+
+localstack-health:
+	@echo "Checking LocalStack health..."
+	@curl -s http://localhost:4566/_localstack/health | jq '.' || echo "LocalStack is not running or not responding"
 
 # Code Quality Targets
 fmt:

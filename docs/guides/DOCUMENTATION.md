@@ -47,8 +47,7 @@ This guide defines the standards and best practices for writing documentation in
 ```
 
 **Examples**:
-- `ARCHITECTURE.md` - System-wide architecture
-- `DECISIONS.md` - Architecture decision records (ADRs)
+- `ARCHITECTURE.md` - System-wide architecture and design decisions
 
 ---
 
@@ -194,8 +193,7 @@ Before committing documentation, verify:
 docs/
 ├── README.md                    # Documentation index
 ├── architecture/
-│   ├── ARCHITECTURE.md          # System architecture
-│   └── DECISIONS.md             # ADRs
+│   └── ARCHITECTURE.md          # System architecture and design decisions
 ├── guides/
 │   ├── VERSIONING.md            # How to version releases
 │   ├── DEVELOPMENT.md           # Developer setup

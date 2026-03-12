@@ -3,58 +3,80 @@
 ## Getting Started
 
 ### Prerequisites
-- [Requirement 1] - [Version]
-- [Requirement 2] - [Version]
-- [Requirement 3] - [Version]
+- **Go 1.24+** - Required for building from source
+- **Make** - For using Makefile targets
+- **Docker** - Optional, for LocalStack testing
+- **Docker Compose** - Optional, for LocalStack testing
+- **AWS CLI** - Optional, for manual testing with real AWS
+- **go-semver-release** - Optional, for semantic versioning
+
+Install go-semver-release:
+```bash
+go install github.com/s0ders/go-semver-release@latest
+```
 
 ### Setup
 
 1. Clone the repository
 ```bash
-git clone [repository-url]
+git clone https://github.com/openshift-online/rosa-regional-platform-cli.git
 cd rosa-regional-platform-cli
 ```
 
-2. Install dependencies
+2. Install Go dependencies
 ```bash
-[installation command]
+go mod download
 ```
 
 3. Build the project
 ```bash
-[build command]
+make build
 ```
+
+The binary will be available at `./rosactl`.
 
 4. Run tests
 ```bash
-[test command]
+make test-localstack
 ```
 
 ## Development Workflow
 
 ### Branch Strategy
-- `main` - Production-ready code
-- `develop` - Integration branch
-- `feature/*` - New features
-- `bugfix/*` - Bug fixes
-- `hotfix/*` - Production hotfixes
+- `main` - Production-ready code, protected branch
+- `feature/*` - New features and enhancements
+- `fix/*` - Bug fixes
+- `chore/*` - Maintenance tasks (dependencies, refactoring)
+- `docs/*` - Documentation updates
 
 ### Making Changes
 
-1. Create a feature branch
+1. Create a feature branch from main
 ```bash
-git checkout -b feature/my-feature
+git checkout main
+git pull origin main
+git checkout -b feature/add-stack-outputs
 ```
 
 2. Make your changes
-3. Write tests
-4. Run tests locally
-5. Commit with meaningful messages
+3. Test locally with LocalStack
+```bash
+make test-localstack
+```
+
+4. Build and test the binary
+```bash
+make build
+./rosactl cluster-vpc create test --region us-east-1 --help
+```
+
+5. Commit with conventional commit messages
 6. Push and create a pull request
 
 ### Commit Messages
 
-Follow the conventional commits format:
+Follow the [conventional commits](https://www.conventionalcommits.org/) format for semantic versioning:
+
 ```
 type(scope): subject
 
@@ -63,83 +85,321 @@ body
 footer
 ```
 
-Types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+**Types** (affects version bump):
+- `feat`: New feature (minor version bump)
+- `fix`: Bug fix (patch version bump)
+- `docs`: Documentation only (patch version bump)
+- `chore`: Maintenance task (patch version bump)
+- `refactor`: Code refactoring (patch version bump)
+- `test`: Adding tests (patch version bump)
+- `BREAKING CHANGE`: Breaking API change (major version bump)
 
-Example:
+**Examples**:
+```bash
+# Feature (bumps 0.1.0 → 0.2.0)
+git commit -m "feat: add VPC peering support"
+
+# Bug fix (bumps 0.1.0 → 0.1.1)
+git commit -m "fix: handle missing OIDC thumbprint gracefully"
+
+# Documentation (bumps 0.1.0 → 0.1.1)
+git commit -m "docs: update architecture diagrams"
+
+# Breaking change (bumps 0.1.0 → 1.0.0)
+git commit -m "feat: change cluster-iam API
+
+BREAKING CHANGE: --oidc-issuer-url flag now requires https:// prefix"
 ```
-feat(cli): add new region command
 
-Add support for listing available regions with filtering options.
-
-Closes #123
-```
+See [docs/guides/VERSIONING.md](VERSIONING.md) for details.
 
 ## Code Style
 
 ### Formatting
-[Describe code formatting standards]
+Use `gofmt` for code formatting (enforced by Go toolchain):
+```bash
+gofmt -w .
+```
 
 ### Linting
 ```bash
-[linting command]
+# Run golangci-lint (if configured)
+golangci-lint run
+
+# Basic vet
+go vet ./...
 ```
 
 ### Best Practices
-- [Practice 1]
-- [Practice 2]
-- [Practice 3]
+- Use `aws.String()`, `aws.Int32()` for pointer conversions
+- Wrap errors with context: `fmt.Errorf("operation failed: %w", err)`
+- Use typed errors for CloudFormation states (StackAlreadyExistsError, NoChangesError)
+- Validate user input early (cluster name format, OIDC URL scheme)
+- Use emoji sparingly in CLI output (only for major status indicators)
+- Keep CloudFormation templates in YAML (readable and auditable)
+- Tag all stacks with: Cluster, ManagedBy, red-hat-managed
 
 ## Testing
 
 ### Running Tests
 
 ```bash
-# Run all tests
-[test command]
+# Run LocalStack integration tests
+make test-localstack
 
-# Run specific test
-[specific test command]
-
-# Run with coverage
-[coverage command]
+# Run with verbose output using Ginkgo directly
+go run github.com/onsi/ginkgo/v2/ginkgo -v test/localstack
 ```
 
+### LocalStack Testing
+
+LocalStack tests validate CLI commands against a local CloudFormation environment:
+
+1. Start LocalStack:
+```bash
+make localstack-up
+```
+
+2. Run tests:
+```bash
+make test-localstack
+```
+
+3. Stop LocalStack:
+```bash
+make localstack-down
+```
+
+**What the tests validate**:
+- `cluster-vpc create` creates CloudFormation stack with VPC resources
+- `cluster-vpc delete` deletes VPC stack
+- `cluster-iam create` creates CloudFormation stack with IAM resources
+- `cluster-iam delete` deletes IAM stack
+- Stack events and outputs are properly returned
+
+See [test/localstack/README.md](../../test/localstack/README.md) for details.
+
 ### Writing Tests
-[Guidelines for writing tests]
+
+Use Ginkgo/Gomega for BDD-style tests:
+
+```go
+var _ = Describe("Feature", func() {
+    It("should do something", func() {
+        result := doSomething()
+        Expect(result).To(Equal("expected"))
+    })
+})
+```
+
+For CLI command tests:
+- Use `exec.CommandContext()` to invoke rosactl binary
+- Use `gexec.Start()` to capture output
+- Verify both stdout and stderr
+- Check exit codes
 
 ## Debugging
 
-### Debug Mode
+### Verbose AWS SDK Logging
+
+Set environment variables:
 ```bash
-[debug command]
+export AWS_SDK_LOG_LEVEL=debug
+export AWS_SDK_LOG_MODE=LogWithHTTPBody
+./rosactl cluster-vpc create test --region us-east-1
+```
+
+### CloudFormation Stack Events
+
+View stack events for troubleshooting:
+```bash
+aws cloudformation describe-stack-events \
+  --stack-name rosa-my-cluster-vpc \
+  --region us-east-1
 ```
 
 ### Common Issues
-- **Issue 1**: [Solution]
-- **Issue 2**: [Solution]
+
+- **"Template not found"**: Templates are embedded - rebuild binary if templates changed
+- **"Stack already exists"**: CLI automatically attempts update - check stack status
+- **"Insufficient permissions"**: Verify AWS credentials have CloudFormation, EC2, IAM permissions
+- **"OIDC thumbprint fetch failed"**: Ensure OIDC URL is publicly accessible over HTTPS
 
 ## Building
 
 ### Local Build
 ```bash
-[build command]
+# Build for current platform
+make build
+
+# Output: ./rosactl
+```
+
+### Build for Specific Platform
+```bash
+# Linux
+GOOS=linux GOARCH=amd64 go build -o rosactl cmd/rosactl/main.go
+
+# macOS
+GOOS=darwin GOARCH=arm64 go build -o rosactl cmd/rosactl/main.go
+
+# Windows
+GOOS=windows GOARCH=amd64 go build -o rosactl.exe cmd/rosactl/main.go
 ```
 
 ### Release Build
 ```bash
-[release build command]
+# Check what version would be released
+make release-dry-run
+
+# Create semantic version tag
+make release
+
+# Push tag to GitHub
+git push origin v0.2.0
 ```
+
+### Docker Build (for Lambda deployment)
+```bash
+# Build container image
+docker build -f Dockerfile -t rosactl:latest .
+
+# Tag for ECR
+docker tag rosactl:latest <account>.dkr.ecr.us-east-1.amazonaws.com/rosactl:latest
+
+# Push to ECR
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin <account>.dkr.ecr.us-east-1.amazonaws.com
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/rosactl:latest
+```
+
+## Project Structure
+
+```text
+rosa-regional-platform-cli/
+├── cmd/rosactl/                     # Entry point (main.go)
+├── internal/
+│   ├── commands/                    # CLI command groups
+│   │   ├── clustervpc/              # VPC management
+│   │   ├── clusteriam/              # IAM management
+│   │   ├── lambda/                  # Lambda bootstrap (optional)
+│   │   └── version/                 # Version command
+│   ├── aws/
+│   │   └── cloudformation/          # CloudFormation client
+│   ├── cloudformation/
+│   │   └── templates/               # Embedded templates (go:embed)
+│   │       ├── cluster-vpc.yaml
+│   │       ├── cluster-iam.yaml
+│   │       └── lambda-bootstrap.yaml
+│   ├── crypto/                      # TLS thumbprint utilities
+│   └── lambda/                      # Lambda handler (optional)
+├── test/
+│   └── localstack/                  # LocalStack integration tests
+│       ├── localstack_suite_test.go
+│       └── localstack_test.go
+├── docker-compose.localstack.yaml   # LocalStack compose file
+└── docs/
+    ├── architecture/                # Architecture docs
+    ├── guides/                      # User and developer guides
+    └── specs/                       # Feature specifications
+```
+
+## Adding New Features
+
+### Adding a New CLI Command
+
+1. Create command directory in `internal/commands/`
+2. Implement `New<Command>Command()` function
+3. Register in root command (`cmd/rosactl/main.go`)
+4. Add tests in LocalStack test suite
+
+Example:
+```go
+// internal/commands/myfeature/myfeature.go
+package myfeature
+
+import "github.com/spf13/cobra"
+
+func NewCommand() *cobra.Command {
+    return &cobra.Command{
+        Use:   "my-feature",
+        Short: "Manage my feature",
+        RunE: func(cmd *cobra.Command, args []string) error {
+            // Implementation
+            return nil
+        },
+    }
+}
+```
+
+### Adding a New CloudFormation Template
+
+1. Create template in `internal/cloudformation/templates/`
+2. Template is automatically embedded via `//go:embed *.yaml`
+3. Read template using `templates.Read("my-template.yaml")`
+4. Rebuild binary to pick up new template
 
 ## Documentation
 
-### Updating Docs
-[How to update documentation]
+### Documentation Structure
 
-### Generating Docs
-```bash
-[doc generation command]
-```
+- `README.md` - Main project documentation
+- `docs/architecture/ARCHITECTURE.md` - System architecture and components
+- `docs/guides/DEVELOPMENT.md` - This file
+- `docs/guides/VERSIONING.md` - Semantic versioning guide
+- `test/localstack/README.md` - LocalStack testing guide
+
+### Updating Documentation
+
+When making changes that affect user-facing behavior or architecture:
+
+1. Update README.md if adding/changing CLI commands
+2. Update ARCHITECTURE.md if changing system design or architectural decisions
+3. Update DEVELOPMENT.md for development workflow changes
+4. Update inline code documentation with `//` comments
+
+### Documentation Best Practices
+
+- Keep examples up-to-date with current CLI syntax
+- Use actual command output in examples (not made-up placeholders)
+- Document breaking changes in commit messages
+- Update architecture diagrams when components change
+- Link related documentation sections
 
 ## Contributing
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for contribution guidelines.
+### Pull Request Process
+
+1. Fork the repository
+2. Create a feature branch from `main`
+3. Make changes with conventional commit messages
+4. Run tests locally (`make test-localstack`)
+5. Build binary and test manually
+6. Push branch and create pull request
+7. Address review feedback
+8. PR gets merged to `main`
+
+### Code Review Guidelines
+
+**For Reviewers**:
+- Check for security issues (command injection, path traversal)
+- Verify CloudFormation templates are valid
+- Ensure error messages are helpful
+- Confirm tests cover new functionality
+- Check that documentation is updated
+
+**For Contributors**:
+- Keep changes focused and atomic
+- Write clear commit messages
+- Add tests for new features
+- Update documentation
+- Respond to review feedback promptly
+
+## Resources
+
+- [AWS CloudFormation Documentation](https://docs.aws.amazon.com/cloudformation/)
+- [AWS SDK for Go v2](https://aws.github.io/aws-sdk-go-v2/docs/)
+- [Cobra CLI Framework](https://github.com/spf13/cobra)
+- [Ginkgo Testing Framework](https://onsi.github.io/ginkgo/)
+- [Conventional Commits](https://www.conventionalcommits.org/)
+- [go-semver-release](https://github.com/s0ders/go-semver-release)

@@ -9,7 +9,7 @@ Welcome to the rosactl documentation! This directory contains all project docume
 | **Understand the architecture** | [architecture/ARCHITECTURE.md](architecture/ARCHITECTURE.md) |
 | **Build and contribute** | [guides/DEVELOPMENT.md](guides/DEVELOPMENT.md) |
 | **Manage versions** | [guides/VERSIONING.md](guides/VERSIONING.md) |
-| **Run end-to-end tests** | [specs/feature-e2e.md](specs/feature-e2e.md) or [../test/e2e/README.md](../test/e2e/README.md) |
+| **Run integration tests** | [../test/localstack/README.md](../test/localstack/README.md) |
 
 ## 📁 Documentation Structure
 
@@ -17,14 +17,12 @@ Welcome to the rosactl documentation! This directory contains all project docume
 docs/
 ├── README.md                    # This file
 ├── architecture/                # System design and architecture
-│   ├── ARCHITECTURE.md          # System architecture overview
-│   └── DECISIONS.md             # Architecture decision records (ADRs)
+│   └── ARCHITECTURE.md          # System architecture overview
 ├── guides/                      # User and developer guides
 │   ├── DEVELOPMENT.md           # Developer setup and workflows
 │   ├── VERSIONING.md            # Semantic versioning guide
 │   └── DOCUMENTATION.md         # Documentation writing guidelines
 └── specs/                       # Feature specifications and references
-    ├── feature-e2e.md           # End-to-end testing spec
     ├── reference-gist-1.md      # OIDC/STS authentication flow reference
     └── references.md            # External project references
 ```
@@ -33,18 +31,12 @@ docs/
 
 ### [ARCHITECTURE.md](architecture/ARCHITECTURE.md)
 Complete system architecture including:
-- Container-based Lambda + CloudFormation approach
+- Direct CloudFormation management with optional Lambda
 - Managed OIDC architecture (Red Hat-hosted)
 - Dual-mode Go binary (CLI and Lambda)
-- CloudFormation templates for IAM resources
+- Embedded CloudFormation templates
 - Security architecture and trust chains
-- Design trade-offs and decisions
-
-### [DECISIONS.md](architecture/DECISIONS.md)
-Architecture decision records (ADRs) documenting:
-- Why certain technical choices were made
-- Alternatives considered
-- Trade-offs and consequences
+- Design trade-offs and architectural decisions
 
 ## 📖 User & Developer Guides
 
@@ -74,7 +66,7 @@ Documentation writing guidelines:
 
 | Document | Purpose |
 |----------|---------|
-| [feature-e2e.md](specs/feature-e2e.md) | End-to-end testing framework using Ginkgo |
+| [LocalStack Testing](../test/localstack/README.md) | LocalStack integration testing with Ginkgo |
 
 ### References
 
@@ -100,8 +92,9 @@ Documentation writing guidelines:
 
 ### For Testing
 
-1. Read [feature-e2e.md](specs/feature-e2e.md) for E2E test requirements
-2. Check [../test/e2e/README.md](../test/e2e/README.md) for test setup and execution
+1. Read [LocalStack Testing Guide](../test/localstack/README.md) for integration test setup
+2. Run `make test-localstack` to execute tests against LocalStack
+3. Review [DEVELOPMENT.md](guides/DEVELOPMENT.md) for testing best practices
 
 ## 🔄 Documentation Lifecycle
 
@@ -177,7 +170,7 @@ See [DOCUMENTATION.md](guides/DOCUMENTATION.md) for detailed guidelines.
 ## 🔗 External Resources
 
 - [Main README](../README.md) - Project README
-- [E2E Test README](../test/e2e/README.md) - End-to-end testing guide
+- [LocalStack Testing Guide](../test/localstack/README.md) - Integration testing guide
 - [Makefile](../Makefile) - Build targets and commands
 - [GitHub Repository](https://github.com/openshift-online/rosa-regional-platform-cli)
 - [ROSA Regional Platform Terraform](https://github.com/openshift-online/rosa-regional-platform) - Reference implementation
