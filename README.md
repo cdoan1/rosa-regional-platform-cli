@@ -2,28 +2,28 @@
 
 A command-line tool for ROSA Regional Platform
 
-* Used to managing AWS Lambda functions and S3-backed OIDC (OpenID Connect) identity providers.
+Manages AWS infrastructure for ROSA hosted clusters including VPC networking, IAM roles, and OIDC providers via CloudFormation stacks.
 
 ![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)
 
 ## Features
 
-### Lambda Functions
-- **ZIP-based deployment**: Python Lambda functions with ZIP packaging
-- **Specialized handlers**: Default Python handler, OIDC issuer management, OIDC deletion
-- **Full lifecycle management**: Create, invoke, list, update, delete, and version Lambda functions
-- **Automatic IAM role management**: Creates execution roles with appropriate permissions
+### Cluster Infrastructure Management
+- **VPC Networking**: Create and manage VPCs, subnets, NAT gateways, and security groups for hosted clusters
+- **IAM Resources**: Create OIDC providers and IAM roles for cluster control plane and worker nodes
+- **CloudFormation-based**: All resources deployed via CloudFormation stacks for consistency and rollback support
+- **Embedded templates**: CloudFormation templates embedded in binary using go:embed
+- **Direct execution**: No Lambda bootstrap required for basic operations
 
-### OIDC Providers (OpenID Connect)
-- **S3-backed OIDC issuers**: Create OIDC providers hosted on S3 buckets
-- **RSA key pair generation**: Automatic key generation with secure private key storage
-- **IAM integration**: Automatically registers OIDC providers with AWS IAM
-- **Complete lifecycle**: Create, list, and delete OIDC issuers
+### Optional Lambda Bootstrap
+- **Container-based Lambda**: Deploy rosactl as a Lambda function for event-driven workflows
+- **Automated deployments**: Integrate with CI/CD pipelines and AWS event sources
+- **Same binary**: Lambda uses the same rosactl binary packaged in a container
 
 ### Developer Experience
 - **Semantic versioning**: Automated version management with conventional commits
-- **Comprehensive testing**: End-to-end tests against real AWS services
-- **Clear error messages**: User-friendly error reporting
+- **LocalStack testing**: Integration tests against LocalStack for CloudFormation validation
+- **Clear error messages**: User-friendly error reporting with CloudFormation event details
 - **Extensive documentation**: Architecture docs, guides, and examples
 
 ## Quick Start
@@ -45,17 +45,21 @@ make install
 ### Basic Usage
 
 ```bash
-# Create a basic Lambda function
-rosactl lambda create my-function
+# Create VPC networking for a cluster
+rosactl cluster-vpc create my-cluster --region us-east-1
 
-# Create an OIDC issuer management Lambda
-rosactl lambda create my-oidc --handler oidc
+# Create IAM resources (OIDC provider + roles) for a cluster
+rosactl cluster-iam create my-cluster \
+  --oidc-issuer-url https://oidc.example.com/my-cluster \
+  --region us-east-1
 
-# Create an OIDC issuer
-rosactl oidc create my-cluster --function my-oidc
+# List cluster stacks
+rosactl cluster-vpc list --region us-east-1
+rosactl cluster-iam list --region us-east-1
 
-# List OIDC issuers
-rosactl oidc list
+# Delete cluster resources
+rosactl cluster-vpc delete my-cluster --region us-east-1
+rosactl cluster-iam delete my-cluster --region us-east-1
 
 # Check version
 rosactl version
@@ -69,14 +73,15 @@ rosactl version
   - Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`), or
   - IAM role (when running on EC2/ECS)
 - **AWS IAM permissions**:
-  - Lambda: `CreateFunction`, `DeleteFunction`, `InvokeFunction`, `GetFunction`, `ListFunctions`, `UpdateFunctionCode`, `PublishVersion`
-  - IAM: `CreateRole`, `GetRole`, `AttachRolePolicy`, `PutRolePolicy`
-  - S3 (for OIDC): `CreateBucket`, `DeleteBucket`, `PutObject`, `DeleteObject`, `ListBucket`, `PutBucketPolicy`, `PutPublicAccessBlock`
-  - IAM OIDC: `CreateOpenIDConnectProvider`, `DeleteOpenIDConnectProvider`, `ListOpenIDConnectProviders`, `GetOpenIDConnectProvider`
+  - **CloudFormation**: `CreateStack`, `UpdateStack`, `DeleteStack`, `DescribeStacks`, `ListStacks`, `DescribeStackEvents`, `DescribeStackResources`, `ListStackResources`
+  - **EC2** (for VPC): `CreateVpc`, `DeleteVpc`, `CreateSubnet`, `DeleteSubnet`, `CreateSecurityGroup`, `DeleteSecurityGroup`, `CreateNatGateway`, `DeleteNatGateway`, `CreateInternetGateway`, `DeleteInternetGateway`, `CreateRoute`, `DeleteRoute`, `CreateRouteTable`, `DeleteRouteTable`, `AuthorizeSecurityGroupEgress`, `AuthorizeSecurityGroupIngress`
+  - **IAM** (for cluster roles): `CreateRole`, `DeleteRole`, `AttachRolePolicy`, `DetachRolePolicy`, `CreateInstanceProfile`, `DeleteInstanceProfile`, `AddRoleToInstanceProfile`, `RemoveRoleFromInstanceProfile`, `CreateOpenIDConnectProvider`, `DeleteOpenIDConnectProvider`, `GetOpenIDConnectProvider`, `ListOpenIDConnectProviders`
+  - **Route53** (for VPC): `CreateHostedZone`, `DeleteHostedZone`
 
 ### Optional Tools
 
 - **go-semver-release** - For semantic versioning (install: `go install github.com/s0ders/go-semver-release@latest`)
+- **LocalStack** - For local testing with CloudFormation (see `test/localstack/README.md`)
 
 ## AWS Configuration
 
@@ -101,101 +106,106 @@ export AWS_PROFILE=your-profile-name
 
 ## Usage
 
-### Lambda Functions
+### Cluster VPC Management
 
-#### Create Lambda Functions
-
-```bash
-# Lambda with default handler (hello world)
-rosactl lambda create my-function
-
-# OIDC issuer management Lambda
-rosactl lambda create my-oidc-issuer --handler oidc
-
-# OIDC deletion Lambda
-rosactl lambda create my-oidc-cleanup --handler oidc-delete
-```
-
-**Handler types:**
-- `default` - Basic Python handler that returns "hello world" with timestamp
-- `oidc` - Creates S3-backed OIDC issuers with IAM providers
-- `oidc-delete` - Deletes S3 buckets and IAM OIDC providers
-
-#### Invoke Lambda Functions
+#### Create Cluster VPC
 
 ```bash
-# Invoke a function
-rosactl lambda invoke my-function
+# Create VPC with default settings
+rosactl cluster-vpc create my-cluster --region us-east-1
 
-# Invoke with specific version
-rosactl lambda invoke my-function --version 2
-```
+# Create with custom CIDR ranges
+rosactl cluster-vpc create my-cluster \
+  --region us-east-1 \
+  --vpc-cidr 10.1.0.0/16 \
+  --public-subnet-cidrs 10.1.101.0/24,10.1.102.0/24,10.1.103.0/24 \
+  --private-subnet-cidrs 10.1.0.0/19,10.1.32.0/19,10.1.64.0/19
 
-#### List Lambda Functions
-
-```bash
-# Table format (default)
-rosactl lambda list
-
-# JSON format
-rosactl lambda list --output json
-```
-
-#### Delete Lambda Functions
-
-```bash
-rosactl lambda delete my-function
-```
-
-#### List Function Versions
-
-```bash
-rosactl lambda versions my-function
-```
-
-### OIDC Providers
-
-#### Create OIDC Issuer
-
-```bash
-# First, create the OIDC management Lambda (if not already created)
-rosactl lambda create my-oidc-issuer --handler oidc
-
-# Create an OIDC issuer
-rosactl oidc create my-cluster --region us-east-1 --function my-oidc-issuer
+# Create with specific availability zones and per-AZ NAT gateways
+rosactl cluster-vpc create my-cluster \
+  --region us-east-1 \
+  --availability-zones us-east-1a,us-east-1b,us-east-1c \
+  --single-nat-gateway=false
 ```
 
 **What this creates:**
-1. S3 bucket: `oidc-issuer-my-cluster`
-2. OIDC discovery documents: `.well-known/openid-configuration` and `keys.json`
-3. IAM OIDC provider pointing to the S3 bucket
+- VPC with configurable CIDR block (default: 10.0.0.0/16)
+- 3 public subnets across availability zones
+- 3 private subnets across availability zones
+- Internet Gateway
+- NAT Gateway(s) - single (cost savings) or per-AZ (HA)
+- Route tables and routes
+- Security groups
+- Route53 private hosted zone
 
-**RSA Private Key:**
-When creating an OIDC Lambda with `--handler oidc`, the RSA private key is saved to:
-```
-/tmp/oidc-private-key-{KEY_ID}.pem
-```
-
-⚠️ **Keep this file secure!** It can be used to sign JWTs for the OIDC issuer.
-
-#### List OIDC Issuers
+#### List Cluster VPCs
 
 ```bash
-# Table format
-rosactl oidc list
+# List all VPC stacks
+rosactl cluster-vpc list --region us-east-1
 
-# JSON format
-rosactl oidc list --output json
+# JSON output
+rosactl cluster-vpc list --region us-east-1 --output json
 ```
 
-#### Delete OIDC Issuer
+#### Delete Cluster VPC
 
 ```bash
-# First, create the deletion Lambda (if not already created)
-rosactl lambda create my-oidc-cleanup --handler oidc-delete
+rosactl cluster-vpc delete my-cluster --region us-east-1
+```
 
-# Delete an OIDC issuer
-rosactl oidc delete my-cluster --region us-east-1 --function my-oidc-cleanup
+### Cluster IAM Management
+
+#### Create Cluster IAM
+
+```bash
+# Create IAM resources (OIDC provider + roles)
+rosactl cluster-iam create my-cluster \
+  --oidc-issuer-url https://oidc.example.com/my-cluster \
+  --region us-east-1
+```
+
+**What this creates:**
+1. IAM OIDC Provider (with auto-fetched TLS thumbprint)
+2. 7 control plane IAM roles:
+   - Ingress Operator Role
+   - Kube Controller Manager Role
+   - EBS CSI Driver Operator Role
+   - Image Registry Operator Role
+   - Cloud Network Config Operator Role
+   - Control Plane Operator Role
+   - Node Pool Management Role
+3. Worker node IAM role and instance profile
+
+#### List Cluster IAM Stacks
+
+```bash
+# List all IAM stacks
+rosactl cluster-iam list --region us-east-1
+
+# JSON output
+rosactl cluster-iam list --region us-east-1 --output json
+```
+
+#### Delete Cluster IAM
+
+```bash
+rosactl cluster-iam delete my-cluster --region us-east-1
+```
+
+### Optional: Lambda Bootstrap (Advanced)
+
+For event-driven workflows and CI/CD integration, you can deploy rosactl as a Lambda function.
+
+**Note:** Lambda is **optional** - all cluster management commands work directly without Lambda.
+
+#### Deploy Lambda Bootstrap
+
+```bash
+# Create Lambda container that runs rosactl
+rosactl lambda create rosactl-bootstrap --handler default
+
+# The Lambda can then be invoked via AWS events, Step Functions, etc.
 ```
 
 ### Version Management
@@ -215,63 +225,74 @@ See [docs/guides/VERSIONING.md](docs/guides/VERSIONING.md) for details on semant
 
 ## Examples
 
-### Complete Lambda Workflow
+### Complete Cluster Setup Workflow
 
 ```bash
-# Create a function
-rosactl lambda create hello-world
-# Successfully created Lambda function: hello-world
-# ARN: arn:aws:lambda:us-east-1:123456789012:function:hello-world (version: 1)
+# Step 1: Create VPC networking for the cluster
+rosactl cluster-vpc create production-cluster --region us-east-1
+# 🌐 Creating cluster VPC resources for: production-cluster
+#    Region: us-east-1
+#    VPC CIDR: 10.0.0.0/16
+#    Single NAT Gateway: true
+#
+# 📄 Loading CloudFormation template...
+# ☁️  Creating CloudFormation stack: rosa-production-cluster-vpc
+#    This may take several minutes...
+#
+# ✅ Cluster VPC resources created successfully!
+#    Stack ID: arn:aws:cloudformation:us-east-1:123456789012:stack/rosa-production-cluster-vpc/...
+#
+# Outputs:
+#   VpcId: vpc-0abcd1234efgh5678
+#   PublicSubnetIds: subnet-111,subnet-222,subnet-333
+#   PrivateSubnetIds: subnet-444,subnet-555,subnet-666
+#   PrivateHostedZoneId: Z1234567890ABC
 
-# Invoke it
-rosactl lambda invoke hello-world
-# {
-#   "statusCode": 200,
-#   "body": "{\"current_time\": \"2026-02-22T21:30:00+00:00\", \"message\": \"hello world\", \"ago\": \"5 seconds ago\"}"
-# }
+# Step 2: Create IAM resources (OIDC provider and roles)
+rosactl cluster-iam create production-cluster \
+  --oidc-issuer-url https://oidc.example.com/production-cluster \
+  --region us-east-1
+# 🔐 Creating cluster IAM resources...
+#    Cluster: production-cluster
+#    OIDC Issuer: https://oidc.example.com/production-cluster
+#    Region: us-east-1
+#
+# 🔍 Fetching TLS thumbprint from OIDC issuer...
+#    Thumbprint: a1b2c3d4e5f67890a1b2c3d4e5f67890a1b2c3d4
+#
+# 📄 Loading CloudFormation template...
+# ☁️  Creating CloudFormation stack: rosa-production-cluster-iam
+#    This may take several minutes...
+#
+# ✅ Cluster IAM resources created successfully!
+#    Stack ID: arn:aws:cloudformation:us-east-1:123456789012:stack/rosa-production-cluster-iam/...
+#
+# Created Resources:
+#   OIDCProviderArn: arn:aws:iam::123456789012:oidc-provider/oidc.example.com/production-cluster
+#   IngressOperatorRoleArn: arn:aws:iam::123456789012:role/production-cluster-ingress-operator
+#   WorkerRoleArn: arn:aws:iam::123456789012:role/production-cluster-worker
+#   WorkerInstanceProfileArn: arn:aws:iam::123456789012:instance-profile/production-cluster-worker
 
-# List all functions
-rosactl lambda list
-# NAME          RUNTIME      CREATED
-# hello-world   python3.12   2026-02-22T21:29:55+00:00
+# Step 3: List created resources
+rosactl cluster-vpc list --region us-east-1
+rosactl cluster-iam list --region us-east-1
 
-# Delete it
-rosactl lambda delete hello-world
-# Successfully deleted Lambda function: hello-world
+# Step 4: Cleanup when done
+rosactl cluster-iam delete production-cluster --region us-east-1
+rosactl cluster-vpc delete production-cluster --region us-east-1
 ```
 
-### Complete OIDC Workflow
+### Custom VPC Configuration
 
 ```bash
-# Step 1: Create OIDC management Lambdas
-rosactl lambda create oidc-issuer --handler oidc
-# ⚠️  Private key saved to: /tmp/oidc-private-key-1a2b3c4d5e6f7890.pem
-# ⚠️  Keep this file secure! It can be used to sign JWTs for this OIDC issuer.
-
-rosactl lambda create oidc-cleanup --handler oidc-delete
-
-# Step 2: Create an OIDC issuer
-rosactl oidc create production-cluster --region us-east-1 --function oidc-issuer
-# Using bucket name: oidc-issuer-production-cluster
-# Invoking OIDC Lambda function 'oidc-issuer'...
-#
-# OIDC Issuer created successfully:
-# {
-#   "bucket_name": "oidc-issuer-production-cluster",
-#   "issuer_url": "https://oidc-issuer-production-cluster.s3.us-east-1.amazonaws.com",
-#   "provider_arn": "arn:aws:iam::123456789012:oidc-provider/oidc-issuer-production-cluster.s3.us-east-1.amazonaws.com",
-#   "discovery_url": "https://oidc-issuer-production-cluster.s3.us-east-1.amazonaws.com/.well-known/openid-configuration",
-#   "jwks_url": "https://oidc-issuer-production-cluster.s3.us-east-1.amazonaws.com/keys.json"
-# }
-
-# Step 3: Verify it was created
-rosactl oidc list
-# BUCKET NAME                       ISSUER URL                                                      STATUS   PROVIDER ARN
-# oidc-issuer-production-cluster    https://oidc-issuer-production-cluster.s3.us-east-1...         Active   arn:aws:iam::123...
-
-# Step 4: Delete when done
-rosactl oidc delete production-cluster --region us-east-1 --function oidc-cleanup
-# OIDC issuer deleted successfully
+# Create VPC with custom CIDR ranges and per-AZ NAT gateways for HA
+rosactl cluster-vpc create my-cluster \
+  --region us-west-2 \
+  --vpc-cidr 10.1.0.0/16 \
+  --public-subnet-cidrs 10.1.101.0/24,10.1.102.0/24,10.1.103.0/24 \
+  --private-subnet-cidrs 10.1.0.0/19,10.1.32.0/19,10.1.64.0/19 \
+  --availability-zones us-west-2a,us-west-2b,us-west-2c \
+  --single-nat-gateway=false
 ```
 
 ## Development
@@ -286,13 +307,17 @@ make build
 ### Run Tests
 
 ```bash
-# E2E tests (requires AWS_PROFILE)
-export AWS_PROFILE=your-profile-name
-make test-e2e
+# LocalStack integration tests (tests CloudFormation stack creation)
+make test-localstack
+
+# Run with verbose output
+make test-localstack-verbose
 
 # Install test dependencies
 make test-deps
 ```
+
+See [test/localstack/README.md](test/localstack/README.md) for LocalStack testing details.
 
 ### Clean
 
@@ -321,27 +346,31 @@ git push origin v0.2.0
 
 ```
 rosa-regional-platform-cli/
-├── cmd/rosactl/              # Entry point
+├── cmd/rosactl/                     # Entry point
 ├── internal/
-│   ├── commands/             # CLI commands
-│   │   ├── lambda/           # Lambda subcommands
-│   │   ├── oidc/             # OIDC subcommands
-│   │   └── version/          # Version command
-│   ├── aws/                  # AWS service clients
-│   │   ├── lambda/           # Lambda client and operations
-│   │   ├── s3/               # S3 bucket operations
-│   │   └── oidc/             # IAM OIDC provider operations
-│   ├── crypto/               # RSA key generation
-│   └── python/               # Python handler code
+│   ├── commands/                    # CLI commands
+│   │   ├── clustervpc/              # VPC management subcommands
+│   │   ├── clusteriam/              # IAM management subcommands
+│   │   ├── lambda/                  # Lambda subcommands (optional)
+│   │   ├── oidc/                    # OIDC subcommands (optional)
+│   │   └── version/                 # Version command
+│   ├── aws/                         # AWS service clients
+│   │   ├── cloudformation/          # CloudFormation client and operations
+│   │   ├── lambda/                  # Lambda client and operations
+│   │   ├── s3/                      # S3 bucket operations
+│   │   └── oidc/                    # IAM OIDC provider operations
+│   ├── cloudformation/              # CloudFormation utilities
+│   │   └── templates/               # Embedded CloudFormation templates
+│   ├── crypto/                      # TLS thumbprint and RSA key utilities
+│   └── python/                      # Python handler code for Lambda
 ├── test/
-│   └── e2e/                  # End-to-end tests
-│       └── fixtures/         # Test helpers
+│   └── localstack/                  # LocalStack integration tests
 ├── docs/
-│   ├── architecture/         # Architecture documentation
-│   ├── guides/               # User guides
-│   └── specs/                # Feature specifications
-├── .semver.yaml              # Semantic versioning config
-├── Makefile                  # Build and test targets
+│   ├── architecture/                # Architecture documentation
+│   ├── guides/                      # User guides
+│   └── specs/                       # Feature specifications
+├── .semver.yaml                     # Semantic versioning config
+├── Makefile                         # Build and test targets
 ├── go.mod
 └── README.md
 ```
@@ -353,32 +382,90 @@ For detailed architecture documentation, see [docs/architecture/ARCHITECTURE.md]
 **High-level overview:**
 
 ```
-┌─────────────────────────────────────────┐
-│          rosactl CLI                    │
-│       (Cobra Framework)                 │
-└────────────┬────────────────────────────┘
-             │
-   ┌─────────┼─────────┐
-   │         │         │
-┌──▼───┐ ┌──▼───┐ ┌──▼─────┐
-│Lambda│ │OIDC  │ │Version │
-│Cmds  │ │Cmds  │ │Cmd     │
-└──┬───┘ └──┬───┘ └────────┘
-   │         │
-┌──▼─────────▼───────────┐
-│   AWS Service Clients  │
-│  Lambda | S3 | IAM     │
-└────────┬────────────────┘
-         │
-┌────────▼────────────────┐
-│    AWS Services         │
-│  Lambda, S3, IAM OIDC   │
-└─────────────────────────┘
+┌──────────────────────────────────────────────┐
+│            rosactl CLI                       │
+│         (Cobra Framework)                    │
+└───────────────┬──────────────────────────────┘
+                │
+    ┌───────────┼───────────────┐
+    │           │               │
+┌───▼────┐  ┌──▼────┐   ┌─────▼──────┐
+│VPC Mgmt│  │IAM Mgmt│  │Lambda (opt)│
+│Commands│  │Commands│  │Commands    │
+└───┬────┘  └──┬─────┘  └─────┬──────┘
+    │          │               │
+    └──────────┼───────────────┘
+               │
+    ┌──────────▼──────────────┐
+    │  CloudFormation Client  │
+    │   (Embedded Templates)  │
+    └──────────┬──────────────┘
+               │
+    ┌──────────▼──────────────┐
+    │   AWS CloudFormation    │
+    │  VPC | IAM | EC2 | R53  │
+    └─────────────────────────┘
 ```
 
-## IAM Execution Roles
+**Key Architectural Decisions:**
 
-rosactl automatically creates and manages IAM execution roles:
+1. **Direct CloudFormation**: CLI commands directly create CloudFormation stacks (no Lambda required)
+2. **Embedded Templates**: CloudFormation templates embedded in binary using go:embed for portability
+3. **Optional Lambda**: Lambda bootstrap available for event-driven workflows, but not required for basic operations
+4. **Typed Errors**: Custom error types for graceful handling of CloudFormation states (AlreadyExists, NoChanges, NotFound)
+
+## CloudFormation Stack Naming
+
+rosactl uses a consistent naming convention for CloudFormation stacks:
+
+- **VPC stacks**: `rosa-{cluster-name}-vpc`
+- **IAM stacks**: `rosa-{cluster-name}-iam`
+
+All stacks are tagged with:
+- `Cluster`: cluster name
+- `ManagedBy`: rosactl
+- `red-hat-managed`: true
+
+## Security Considerations
+
+### OIDC Thumbprint Auto-Fetch
+
+When creating IAM resources with `cluster-iam create`, rosactl automatically fetches the TLS thumbprint from the OIDC issuer URL. This requires:
+- The OIDC issuer URL to be publicly accessible over HTTPS
+- Valid TLS certificate on the OIDC endpoint
+
+### IAM Roles Created
+
+The `cluster-iam create` command creates the following IAM resources via CloudFormation:
+
+**Control Plane Roles** (7):
+- Ingress Operator Role
+- Kube Controller Manager Role
+- EBS CSI Driver Operator Role
+- Image Registry Operator Role
+- Cloud Network Config Operator Role
+- Control Plane Operator Role
+- Node Pool Management Role
+
+**Worker Node Resources**:
+- Worker IAM Role
+- Worker Instance Profile
+
+All roles use OIDC federation for authentication with minimal required permissions.
+
+### VPC Resources Created
+
+The `cluster-vpc create` command creates isolated networking resources:
+- Dedicated VPC with configurable CIDR
+- Public and private subnets across 3 availability zones
+- NAT Gateway(s) for outbound internet access from private subnets
+- Route53 private hosted zone for internal DNS
+
+## Lambda-Specific Information (Optional Feature)
+
+### Lambda IAM Execution Roles
+
+When using the optional Lambda bootstrap feature, rosactl automatically creates IAM execution roles:
 
 1. **`rosactl-lambda-execution-role`** - Basic Lambda execution role
    - Policy: `AWSLambdaBasicExecutionRole` (CloudWatch Logs)
@@ -388,11 +475,9 @@ rosactl automatically creates and manages IAM execution roles:
    - Inline policy: S3 bucket management (`oidc-issuer-*` buckets)
    - Inline policy: IAM OIDC provider management
 
-**Note:** These roles are NOT deleted when Lambda functions are removed, ensuring they remain available for future function creations.
+**Note:** These roles are NOT deleted when Lambda functions are removed.
 
-## Security Considerations
-
-### RSA Private Keys
+### Lambda OIDC RSA Private Keys
 
 When creating OIDC Lambdas (`--handler oidc`), the RSA private key is saved to:
 ```
@@ -405,31 +490,46 @@ When creating OIDC Lambdas (`--handler oidc`), the RSA private key is saved to:
 - Delete from `/tmp` when no longer needed
 - **Never commit private keys to version control**
 
-### S3 Bucket Public Access
-
-OIDC issuers require **publicly readable** S3 buckets to serve OIDC discovery documents:
-- Bucket policy allows `s3:GetObject` for all principals
-- No public write access is granted
-- Buckets are prefixed with `oidc-issuer-` for easy identification
-
 ## Troubleshooting
 
 ### Common Issues
 
-**"AWS_PROFILE environment variable must be set"**
+**"Stack already exists" (cluster-vpc or cluster-iam create)**
+- The command automatically attempts to update the existing stack
+- Check the stack status in CloudFormation console
+- If stuck in a failed state, delete and recreate:
+  ```bash
+  rosactl cluster-vpc delete my-cluster --region us-east-1
+  rosactl cluster-vpc create my-cluster --region us-east-1
+  ```
+
+**"Failed to fetch TLS thumbprint" (cluster-iam create)**
+- Ensure the OIDC issuer URL is publicly accessible over HTTPS
+- Verify the TLS certificate is valid
+- Check network connectivity to the OIDC endpoint
+
+**"Insufficient permissions" (CloudFormation errors)**
+- Ensure your AWS credentials have the required permissions listed in Prerequisites
+- Check CloudFormation stack events for specific permission errors:
+  ```bash
+  aws cloudformation describe-stack-events --stack-name rosa-my-cluster-vpc
+  ```
+
+**"NAT Gateway creation timeout" (LocalStack testing)**
+- This is expected in LocalStack as NAT Gateway support is limited
+- The test will accept CREATE_FAILED status for LocalStack
+- Real AWS environments should succeed
+
+**AWS Configuration**
 ```bash
+# Set AWS profile
 export AWS_PROFILE=your-profile-name
-```
 
-**"Lambda function already exists"**
-```bash
-# Delete the existing function first
-rosactl lambda delete function-name
+# Or use environment variables
+export AWS_ACCESS_KEY_ID=your-key
+export AWS_SECRET_ACCESS_KEY=your-secret
+export AWS_REGION=us-east-1
 ```
-
-**"Bucket still exists after deletion" (E2E tests)**
-- S3's eventual consistency can take up to 5 minutes
-- The bucket will be deleted, just wait for propagation
 
 **"go-semver-release not found"**
 ```bash
@@ -441,8 +541,7 @@ go install github.com/s0ders/go-semver-release@latest
 - [Architecture](docs/architecture/ARCHITECTURE.md) - System architecture and design decisions
 - [Versioning Guide](docs/guides/VERSIONING.md) - Semantic versioning with conventional commits
 - [Development Guide](docs/guides/DEVELOPMENT.md) - Development setup and guidelines
-- [OIDC Feature Spec](docs/specs/feature-oidc.md) - OIDC implementation details
-- [E2E Testing Guide](test/e2e/README.md) - Running end-to-end tests
+- [LocalStack Testing Guide](test/localstack/README.md) - Running integration tests with LocalStack
 
 ## Contributing
 

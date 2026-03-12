@@ -14,8 +14,8 @@ func NewClusterIAMCommand() *cobra.Command {
 This command creates IAM OIDC providers and roles required for hosted control
 plane clusters to interact with AWS services.
 
-The resources are created via CloudFormation templates applied by the Lambda
-function. The Lambda function must be bootstrapped first using 'rosactl bootstrap'.`,
+The resources are created via CloudFormation stacks. Lambda bootstrap is optional
+and no longer required for basic operations.`,
 	}
 
 	cmd.AddCommand(newCreateCommand())

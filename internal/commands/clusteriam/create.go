@@ -2,37 +2,24 @@ package clusteriam
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
-	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/lambda"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/cloudformation"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/cloudformation/templates"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/crypto"
 	"github.com/spf13/cobra"
 )
 
-const (
-	defaultLambdaFunction = "rosa-regional-platform-lambda"
-)
-
 type createOptions struct {
-	clusterName    string
-	oidcIssuerURL  string
-	region         string
-	lambdaFunction string
-}
-
-type lambdaPayload struct {
-	Action          string `json:"action"`
-	ClusterName     string `json:"cluster_name"`
-	OIDCIssuerURL   string `json:"oidc_issuer_url"`
-	OIDCThumbprint  string `json:"oidc_thumbprint"`
-}
-
-type lambdaResponse struct {
-	StackID  string            `json:"stack_id"`
-	Outputs  map[string]string `json:"outputs"`
-	Error    string            `json:"error,omitempty"`
+	clusterName   string
+	oidcIssuerURL string
+	region        string
 }
 
 func newCreateCommand() *cobra.Command {
@@ -45,8 +32,7 @@ func newCreateCommand() *cobra.Command {
 
 This command:
 1. Fetches the TLS thumbprint from the OIDC issuer URL
-2. Invokes the Lambda function to apply the CloudFormation template
-3. Creates the following resources via CloudFormation:
+2. Creates a CloudFormation stack with the following resources:
    - IAM OIDC Provider
    - 7 control plane IAM roles (ingress, cloud-controller-manager, ebs-csi, etc.)
    - Worker node IAM role and instance profile
@@ -64,7 +50,6 @@ Example:
 
 	cmd.Flags().StringVar(&opts.oidcIssuerURL, "oidc-issuer-url", "", "OIDC issuer URL from Management Cluster (required)")
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
-	cmd.Flags().StringVar(&opts.lambdaFunction, "lambda-function", defaultLambdaFunction, "Name of the Lambda function")
 
 	cmd.MarkFlagRequired("oidc-issuer-url")
 	cmd.MarkFlagRequired("region")
@@ -98,49 +83,157 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 	fmt.Printf("   Thumbprint: %s\n", thumbprint)
 	fmt.Println()
 
-	// Create Lambda client
-	lambdaClient, err := lambda.NewClient(ctx)
+	// Derive OIDC issuer domain (remove https:// prefix)
+	oidcIssuerDomain, err := crypto.GetOIDCIssuerDomain(opts.oidcIssuerURL)
 	if err != nil {
-		return fmt.Errorf("failed to create Lambda client: %w", err)
+		return fmt.Errorf("failed to parse OIDC issuer URL: %w", err)
 	}
 
-	// Prepare Lambda payload
-	payload := lambdaPayload{
-		Action:         "apply-cluster-iam",
-		ClusterName:    opts.clusterName,
-		OIDCIssuerURL:  opts.oidcIssuerURL,
-		OIDCThumbprint: thumbprint,
-	}
-
-	payloadBytes, err := json.Marshal(payload)
+	// Read CloudFormation template
+	fmt.Println("📄 Loading CloudFormation template...")
+	templateBody, err := templates.Read("cluster-iam.yaml")
 	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
+		return fmt.Errorf("failed to read template: %w", err)
 	}
 
-	fmt.Printf("🚀 Invoking Lambda function: %s\n", opts.lambdaFunction)
-
-	// Invoke Lambda
-	result, err := lambdaClient.InvokeFunctionWithPayload(ctx, opts.lambdaFunction, payloadBytes)
+	// Load AWS config
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(opts.region))
 	if err != nil {
-		return fmt.Errorf("failed to invoke Lambda: %w", err)
+		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	// Parse response
-	var response lambdaResponse
-	if err := json.Unmarshal(result, &response); err != nil {
-		return fmt.Errorf("failed to parse Lambda response: %w", err)
+	// Create CloudFormation client
+	cfnClient := cloudformation.NewClient(cfg)
+
+	// Prepare stack parameters
+	stackName := fmt.Sprintf("rosa-%s-iam", opts.clusterName)
+	params := &cloudformation.CreateStackParams{
+		StackName:    stackName,
+		TemplateBody: templateBody,
+		Parameters: map[string]string{
+			"ClusterName":      opts.clusterName,
+			"OIDCIssuerURL":    opts.oidcIssuerURL,
+			"OIDCIssuerDomain": oidcIssuerDomain,
+			"OIDCThumbprint":   thumbprint,
+		},
+		Capabilities: []types.Capability{
+			types.CapabilityCapabilityIam,
+			types.CapabilityCapabilityNamedIam,
+		},
+		Tags: []types.Tag{
+			{
+				Key:   aws.String("Cluster"),
+				Value: aws.String(opts.clusterName),
+			},
+			{
+				Key:   aws.String("ManagedBy"),
+				Value: aws.String("rosactl"),
+			},
+			{
+				Key:   aws.String("red-hat-managed"),
+				Value: aws.String("true"),
+			},
+		},
+		WaitTimeout: 15 * time.Minute,
 	}
 
-	// Check for errors
-	if response.Error != "" {
-		return fmt.Errorf("Lambda execution failed: %s", response.Error)
+	fmt.Printf("☁️  Creating CloudFormation stack: %s\n", stackName)
+	fmt.Println("   This may take several minutes...")
+	fmt.Println()
+
+	// Create stack
+	output, err := cfnClient.CreateStack(ctx, params)
+	if err != nil {
+		// Check if stack already exists, try update instead
+		var alreadyExistsErr *cloudformation.StackAlreadyExistsError
+		if errors.As(err, &alreadyExistsErr) {
+			fmt.Println("ℹ️  Stack already exists, attempting update...")
+			return updateStack(ctx, cfnClient, opts, stackName, templateBody, oidcIssuerDomain, thumbprint)
+		}
+
+		// Get stack events to show what failed
+		fmt.Println()
+		fmt.Println("❌ Stack creation failed. Recent events:")
+		events, evtErr := cfnClient.GetStackEvents(ctx, stackName, 10)
+		if evtErr == nil && len(events) > 0 {
+			for _, event := range events {
+				if event.ResourceStatus == "CREATE_FAILED" || event.ResourceStatusReason != "" {
+					fmt.Printf("   • %s: %s", event.LogicalResourceID, event.ResourceStatus)
+					if event.ResourceStatusReason != "" {
+						fmt.Printf(" - %s", event.ResourceStatusReason)
+					}
+					fmt.Println()
+				}
+			}
+		}
+		fmt.Println()
+
+		return fmt.Errorf("failed to create stack: %w", err)
 	}
 
 	fmt.Println("✅ Cluster IAM resources created successfully!")
+	fmt.Printf("   Stack ID: %s\n", output.StackID)
 	fmt.Println()
-	fmt.Println("Created Resources:")
-	if len(response.Outputs) > 0 {
-		for key, value := range response.Outputs {
+
+	if len(output.Outputs) > 0 {
+		fmt.Println("Created Resources:")
+		for key, value := range output.Outputs {
+			fmt.Printf("  %s: %s\n", key, value)
+		}
+	}
+
+	return nil
+}
+
+// updateStack updates an existing cluster IAM CloudFormation stack
+func updateStack(ctx context.Context, cfnClient *cloudformation.Client, opts *createOptions,
+	stackName, templateBody, oidcIssuerDomain, thumbprint string) error {
+	updateParams := &cloudformation.UpdateStackParams{
+		StackName:    stackName,
+		TemplateBody: templateBody,
+		Parameters: map[string]string{
+			"ClusterName":      opts.clusterName,
+			"OIDCIssuerURL":    opts.oidcIssuerURL,
+			"OIDCIssuerDomain": oidcIssuerDomain,
+			"OIDCThumbprint":   thumbprint,
+		},
+		Capabilities: []types.Capability{
+			types.CapabilityCapabilityIam,
+			types.CapabilityCapabilityNamedIam,
+		},
+		WaitTimeout: 15 * time.Minute,
+	}
+
+	fmt.Println("   Updating stack...")
+	output, err := cfnClient.UpdateStack(ctx, updateParams)
+	if err != nil {
+		// Check if no changes are needed
+		var noChangesErr *cloudformation.NoChangesError
+		if errors.As(err, &noChangesErr) {
+			fmt.Println("ℹ️  No changes needed, stack is up to date")
+			// Still get outputs
+			stackOutput, err := cfnClient.GetStackOutputs(ctx, stackName)
+			if err != nil {
+				return fmt.Errorf("failed to get stack outputs: %w", err)
+			}
+
+			fmt.Println()
+			fmt.Println("Stack Resources:")
+			for key, value := range stackOutput.Outputs {
+				fmt.Printf("  %s: %s\n", key, value)
+			}
+			return nil
+		}
+		return fmt.Errorf("failed to update stack: %w", err)
+	}
+
+	fmt.Println("✅ Cluster IAM resources updated successfully!")
+	fmt.Printf("   Stack ID: %s\n", output.StackID)
+	fmt.Println()
+
+	if len(output.Outputs) > 0 {
+		fmt.Println("Updated Resources:")
+		for key, value := range output.Outputs {
 			fmt.Printf("  %s: %s\n", key, value)
 		}
 	}

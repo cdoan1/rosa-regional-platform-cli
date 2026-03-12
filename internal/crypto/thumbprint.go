@@ -64,3 +64,13 @@ func GetOIDCThumbprint(ctx context.Context, issuerURL string) (string, error) {
 
 	return thumbprint, nil
 }
+
+// GetOIDCIssuerDomain extracts the domain from an OIDC issuer URL
+// by removing the https:// prefix. This is needed for the OIDCIssuerDomain
+// CloudFormation parameter.
+func GetOIDCIssuerDomain(issuerURL string) (string, error) {
+	if !strings.HasPrefix(issuerURL, "https://") {
+		return "", fmt.Errorf("OIDC issuer URL must start with https://, got: %s", issuerURL)
+	}
+	return strings.TrimPrefix(issuerURL, "https://"), nil
+}
