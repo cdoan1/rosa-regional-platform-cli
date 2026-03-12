@@ -85,7 +85,7 @@
 
 Lambda bootstrap is **optional** and used for CI/CD integration or event-driven automation. The same rosactl binary runs as a Lambda function.
 
-```
+```text
 ┌──────────────┐
 │   AWS Event  │
 │   Source     │
@@ -217,10 +217,10 @@ The binary detects Lambda runtime via environment variable and switches modes au
 
 **Rationale**:
 - Single portable binary with no external file dependencies
-- No runtime file path resolution issues
+- No runtime file path resolution issues (embedded files accessed by name)
 - Templates versioned with binary
 - Works in any environment (local, container, Lambda)
-- No file I/O errors at runtime
+- Embedded file reads can still fail if filename is wrong, but eliminates external path dependencies
 
 **Trade-off**: Templates fixed at compile time (requires rebuild to update templates).
 

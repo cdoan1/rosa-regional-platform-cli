@@ -147,10 +147,7 @@ go vet ./...
 # Run LocalStack integration tests
 make test-localstack
 
-# Run with verbose output
-make test-localstack-verbose
-
-# Run tests manually with ginkgo
+# Run with verbose output using Ginkgo directly
 go run github.com/onsi/ginkgo/v2/ginkgo -v test/localstack
 ```
 
@@ -160,8 +157,7 @@ LocalStack tests validate CLI commands against a local CloudFormation environmen
 
 1. Start LocalStack:
 ```bash
-cd test/localstack
-docker-compose up -d
+make localstack-up
 ```
 
 2. Run tests:
@@ -171,8 +167,7 @@ make test-localstack
 
 3. Stop LocalStack:
 ```bash
-cd test/localstack
-docker-compose down
+make localstack-down
 ```
 
 **What the tests validate**:
@@ -280,7 +275,7 @@ docker push <account>.dkr.ecr.us-east-1.amazonaws.com/rosactl:latest
 
 ## Project Structure
 
-```
+```text
 rosa-regional-platform-cli/
 ├── cmd/rosactl/                     # Entry point (main.go)
 ├── internal/
@@ -300,9 +295,9 @@ rosa-regional-platform-cli/
 │   └── lambda/                      # Lambda handler (optional)
 ├── test/
 │   └── localstack/                  # LocalStack integration tests
-│       ├── docker-compose.yml
 │       ├── localstack_suite_test.go
 │       └── localstack_test.go
+├── docker-compose.localstack.yaml   # LocalStack compose file
 └── docs/
     ├── architecture/                # Architecture docs
     ├── guides/                      # User and developer guides
