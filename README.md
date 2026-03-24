@@ -202,10 +202,43 @@ For event-driven workflows and CI/CD integration, you can deploy rosactl as a La
 #### Deploy Lambda Bootstrap
 
 ```bash
-# Create Lambda container that runs rosactl
-rosactl lambda create rosactl-bootstrap --handler default
+# Build and push the container image to ECR
+docker build -t <account>.dkr.ecr.us-east-1.amazonaws.com/rosactl:latest .
+docker push <account>.dkr.ecr.us-east-1.amazonaws.com/rosactl:latest
 
-# The Lambda can then be invoked via AWS events, Step Functions, etc.
+# Deploy the Lambda function via CloudFormation
+rosactl bootstrap create \
+  --image-uri <account>.dkr.ecr.us-east-1.amazonaws.com/rosactl:latest \
+  --function-name rosactl-bootstrap \
+  --region us-east-1
+```
+
+#### Invoke the Lambda Handler
+
+Once deployed, the Lambda function accepts JSON event payloads:
+
+```json
+{
+  "action": "apply-cluster-vpc",
+  "cluster_name": "my-cluster",
+  "availability_zones": ["us-east-1a", "us-east-1b", "us-east-1c"],
+  "single_nat_gateway": true
+}
+```
+
+Supported `action` values:
+- `apply-cluster-vpc` - Create or update VPC CloudFormation stack
+- `delete-cluster-vpc` - Delete VPC stack
+- `apply-cluster-iam` - Create or update IAM CloudFormation stack
+- `delete-cluster-iam` - Delete IAM stack
+
+```bash
+# Invoke via AWS CLI
+aws lambda invoke \
+  --function-name rosactl-bootstrap \
+  --payload '{"action":"apply-cluster-vpc","cluster_name":"my-cluster","availability_zones":["us-east-1a","us-east-1b","us-east-1c"]}' \
+  --cli-binary-format raw-in-base64-out \
+  response.json
 ```
 
 ### Version Management
@@ -307,7 +340,10 @@ make build
 ### Run Tests
 
 ```bash
-# LocalStack integration tests (tests CloudFormation stack creation)
+# Set LocalStack Pro auth token (required for Lambda container tests)
+export LOCALSTACK_AUTH_TOKEN=your-token-here
+
+# LocalStack integration tests (CLI tests + Lambda handler invocation tests)
 make test-localstack
 
 # Run with verbose output
@@ -349,20 +385,20 @@ rosa-regional-platform-cli/
 ├── cmd/rosactl/                     # Entry point
 ├── internal/
 │   ├── commands/                    # CLI commands
+│   │   ├── bootstrap/               # Lambda bootstrap deployment
 │   │   ├── clustervpc/              # VPC management subcommands
 │   │   ├── clusteriam/              # IAM management subcommands
-│   │   ├── lambda/                  # Lambda subcommands (optional)
-│   │   ├── oidc/                    # OIDC subcommands (optional)
+│   │   ├── handler/                 # Lambda handler entrypoint command
 │   │   └── version/                 # Version command
+│   ├── services/                    # Shared business logic
+│   │   ├── clustervpc/              # VPC service (CreateVPC, DeleteVPC)
+│   │   └── clusteriam/              # IAM service (CreateIAM, DeleteIAM)
 │   ├── aws/                         # AWS service clients
-│   │   ├── cloudformation/          # CloudFormation client and operations
-│   │   ├── lambda/                  # Lambda client and operations
-│   │   ├── s3/                      # S3 bucket operations
-│   │   └── oidc/                    # IAM OIDC provider operations
+│   │   └── cloudformation/          # CloudFormation client and operations
 │   ├── cloudformation/              # CloudFormation utilities
 │   │   └── templates/               # Embedded CloudFormation templates
-│   ├── crypto/                      # TLS thumbprint and RSA key utilities
-│   └── python/                      # Python handler code for Lambda
+│   ├── crypto/                      # TLS thumbprint utilities
+│   └── lambda/                      # Lambda event handler
 ├── test/
 │   └── localstack/                  # LocalStack integration tests
 ├── docs/
@@ -383,7 +419,7 @@ For detailed architecture documentation, see [docs/architecture/ARCHITECTURE.md]
 
 ```
 ┌──────────────────────────────────────────────┐
-│            rosactl CLI                       │
+│            rosactl CLI / Lambda Handler       │
 │         (Cobra Framework)                    │
 └───────────────┬──────────────────────────────┘
                 │
@@ -391,10 +427,15 @@ For detailed architecture documentation, see [docs/architecture/ARCHITECTURE.md]
     │           │               │
 ┌───▼────┐  ┌──▼────┐   ┌─────▼──────┐
 │VPC Mgmt│  │IAM Mgmt│  │Lambda (opt)│
-│Commands│  │Commands│  │Commands    │
+│Commands│  │Commands│  │Handler     │
 └───┬────┘  └──┬─────┘  └─────┬──────┘
     │          │               │
     └──────────┼───────────────┘
+               │
+    ┌──────────▼──────────────┐
+    │     Service Layer       │
+    │  clustervpc / clusteriam│
+    └──────────┬──────────────┘
                │
     ┌──────────▼──────────────┐
     │  CloudFormation Client  │
@@ -411,8 +452,9 @@ For detailed architecture documentation, see [docs/architecture/ARCHITECTURE.md]
 
 1. **Direct CloudFormation**: CLI commands directly create CloudFormation stacks (no Lambda required)
 2. **Embedded Templates**: CloudFormation templates embedded in binary using go:embed for portability
-3. **Optional Lambda**: Lambda bootstrap available for event-driven workflows, but not required for basic operations
-4. **Typed Errors**: Custom error types for graceful handling of CloudFormation states (AlreadyExists, NoChanges, NotFound)
+3. **Service Layer**: Shared business logic in `internal/services/` used by both CLI commands and Lambda handler, avoiding duplication
+4. **Optional Lambda**: Lambda bootstrap available for event-driven workflows, but not required for basic operations
+5. **Typed Errors**: Custom error types for graceful handling of CloudFormation states (AlreadyExists, NoChanges, NotFound)
 
 ## CloudFormation Stack Naming
 
@@ -517,8 +559,13 @@ When creating OIDC Lambdas (`--handler oidc`), the RSA private key is saved to:
 
 **"NAT Gateway creation timeout" (LocalStack testing)**
 - This is expected in LocalStack as NAT Gateway support is limited
-- The test will accept CREATE_FAILED status for LocalStack
+- Tests accept both CREATE_COMPLETE and CREATE_FAILED status for LocalStack
 - Real AWS environments should succeed
+
+**"Lambda container execution fails" (LocalStack testing)**
+- Lambda container execution requires LocalStack Pro
+- Set `LOCALSTACK_AUTH_TOKEN=your-token-here` before starting LocalStack
+- Or create a `.env` file in the project root with `LOCALSTACK_AUTH_TOKEN=your-token-here`
 
 **AWS Configuration**
 ```bash

@@ -5,8 +5,9 @@
 ### Prerequisites
 - **Go 1.24+** - Required for building from source
 - **Make** - For using Makefile targets
-- **Docker** - Optional, for LocalStack testing
+- **Docker or Podman** - Optional, for LocalStack testing and building Lambda container images
 - **Docker Compose** - Optional, for LocalStack testing
+- **LocalStack Pro auth token** - Required to run Lambda container execution tests (set `LOCALSTACK_AUTH_TOKEN`)
 - **AWS CLI** - Optional, for manual testing with real AWS
 - **go-semver-release** - Optional, for semantic versioning
 
@@ -153,19 +154,25 @@ go run github.com/onsi/ginkgo/v2/ginkgo -v test/localstack
 
 ### LocalStack Testing
 
-LocalStack tests validate CLI commands against a local CloudFormation environment:
+LocalStack tests validate CLI commands and Lambda handler invocations against a local AWS environment.
+Lambda container execution tests require LocalStack Pro.
 
-1. Start LocalStack:
+1. Set the LocalStack Pro auth token (required for Lambda tests):
+```bash
+export LOCALSTACK_AUTH_TOKEN=your-token-here
+```
+
+2. Start LocalStack:
 ```bash
 make localstack-up
 ```
 
-2. Run tests:
+3. Run tests:
 ```bash
 make test-localstack
 ```
 
-3. Stop LocalStack:
+4. Stop LocalStack:
 ```bash
 make localstack-down
 ```
@@ -176,6 +183,9 @@ make localstack-down
 - `cluster-iam create` creates CloudFormation stack with IAM resources
 - `cluster-iam delete` deletes IAM stack
 - Stack events and outputs are properly returned
+- Lambda `apply-cluster-vpc` / `delete-cluster-vpc` invocations create and delete VPC stacks
+- Lambda `apply-cluster-iam` / `delete-cluster-iam` invocations create and delete IAM stacks
+- Lambda deployment via `rosactl bootstrap create` with a container image
 
 See [test/localstack/README.md](../../test/localstack/README.md) for details.
 
@@ -280,10 +290,14 @@ rosa-regional-platform-cli/
 ├── cmd/rosactl/                     # Entry point (main.go)
 ├── internal/
 │   ├── commands/                    # CLI command groups
+│   │   ├── bootstrap/               # Lambda bootstrap deployment
 │   │   ├── clustervpc/              # VPC management
 │   │   ├── clusteriam/              # IAM management
-│   │   ├── lambda/                  # Lambda bootstrap (optional)
+│   │   ├── handler/                 # Lambda handler entrypoint command
 │   │   └── version/                 # Version command
+│   ├── services/                    # Shared business logic (used by CLI and Lambda)
+│   │   ├── clustervpc/              # VPC service (CreateVPC, DeleteVPC)
+│   │   └── clusteriam/              # IAM service (CreateIAM, DeleteIAM)
 │   ├── aws/
 │   │   └── cloudformation/          # CloudFormation client
 │   ├── cloudformation/
@@ -292,12 +306,13 @@ rosa-regional-platform-cli/
 │   │       ├── cluster-iam.yaml
 │   │       └── lambda-bootstrap.yaml
 │   ├── crypto/                      # TLS thumbprint utilities
-│   └── lambda/                      # Lambda handler (optional)
+│   └── lambda/                      # Lambda event handler (optional)
 ├── test/
 │   └── localstack/                  # LocalStack integration tests
 │       ├── localstack_suite_test.go
-│       └── localstack_test.go
-├── docker-compose.localstack.yaml   # LocalStack compose file
+│       ├── localstack_test.go       # CLI tests
+│       └── lambda_test.go           # Lambda handler invocation tests
+├── docker-compose.localstack.yaml   # LocalStack Pro compose file
 └── docs/
     ├── architecture/                # Architecture docs
     ├── guides/                      # User and developer guides

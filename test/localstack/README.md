@@ -11,6 +11,9 @@ These tests verify that the CLI correctly creates AWS resources (VPC, IAM, Cloud
 - **Docker or Podman** and Docker Compose
   - Podman users (Fedora/RHEL): The compose file automatically uses your Podman socket at `/run/user/$(id -u)/podman/podman.sock`
   - Docker users: Set `export DOCKER_SOCK=/var/run/docker.sock` before running
+- **LocalStack Pro** - Lambda container execution tests require LocalStack Pro
+  - Set `export LOCALSTACK_AUTH_TOKEN=your-token-here` before running, or create a `.env` file containing `LOCALSTACK_AUTH_TOKEN=your-token-here`
+  - A free LocalStack Pro trial or paid subscription provides the auth token
 - Go 1.24+
 - Ginkgo CLI (install if not present):
   ```bash
@@ -23,14 +26,17 @@ These tests verify that the CLI correctly creates AWS resources (VPC, IAM, Cloud
 ### Quick Start
 
 ```bash
+# Set LocalStack Pro auth token (required for Lambda container tests)
+export LOCALSTACK_AUTH_TOKEN=your-token-here
+
 # From the project root
 ./test/localstack/run-localstack-tests.sh
 ```
 
 This script will:
-1. Start LocalStack via docker-compose
+1. Start LocalStack Pro via docker-compose
 2. Build the `rosactl` binary
-3. Run Ginkgo tests against LocalStack
+3. Run all Ginkgo tests against LocalStack (CLI tests and Lambda handler tests)
 4. Optionally stop LocalStack when done
 
 ### Manual Execution
@@ -61,14 +67,14 @@ docker-compose -f docker-compose.localstack.yaml down -v
 
 ## What's Tested
 
-### VPC Management (`cluster-vpc`)
+### VPC Management via CLI (`cluster-vpc`)
 - CloudFormation template validation
 - VPC resource creation
 - Subnet creation across availability zones
 - Security group creation
 - Route53 private hosted zone creation
 
-### IAM Management (`cluster-iam`)
+### IAM Management via CLI (`cluster-iam`)
 - CloudFormation template validation
 - IAM OIDC provider creation
 - Control plane IAM roles (7 roles)
@@ -80,6 +86,14 @@ docker-compose -f docker-compose.localstack.yaml down -v
 - Stack status checking
 - Stack deletion
 
+### Lambda Handler Invocations (`lambda_test.go`)
+- Builds the `rosactl` container image and pushes it to LocalStack ECR
+- Deploys the Lambda function via `rosactl bootstrap create`
+- Invokes Lambda with `apply-cluster-vpc` event and verifies VPC stack creation
+- Invokes Lambda with `apply-cluster-iam` event and verifies IAM stack creation
+- Invokes Lambda with `delete-cluster-vpc` event and verifies VPC stack deletion
+- Invokes Lambda with `delete-cluster-iam` event and verifies IAM stack deletion
+
 ## Test Structure
 
 ```
@@ -87,33 +101,35 @@ test/localstack/
 ├── README.md                      # This file
 ├── run-localstack-tests.sh        # Test runner script
 ├── localstack_suite_test.go       # Ginkgo suite setup
-└── localstack_test.go             # Integration tests
+├── localstack_test.go             # CLI integration tests
+└── lambda_test.go                 # Lambda handler invocation tests
 ```
 
 ## LocalStack Configuration
 
-The `docker-compose.localstack.yaml` file configures LocalStack with:
+The `docker-compose.localstack.yaml` file configures LocalStack Pro with:
 - CloudFormation
 - IAM
 - EC2
 - Route53
-- Lambda (for future Lambda execution tests)
-- ECR (for container image testing)
-- S3 (if needed)
+- Lambda (container image execution via LocalStack Pro)
+- ECR (container image storage and retrieval)
+- S3
+- CloudWatch Logs
+
+**Note**: Lambda container execution requires LocalStack Pro. Set `LOCALSTACK_AUTH_TOKEN` before starting LocalStack.
 
 ## Current Limitations
 
-1. **Lambda Execution Not Tested**: Tests currently create CloudFormation stacks directly rather than invoking the Lambda function. This will be added in a future iteration.
+1. **LocalStack Pro Required**: Lambda container execution tests require a LocalStack Pro subscription. Set `LOCALSTACK_AUTH_TOKEN` before running the full test suite.
 
-2. **LocalStack Pro Features**: Some AWS features may require LocalStack Pro (e.g., full IAM simulation, VPC endpoints).
+2. **NAT Gateway Limitations**: LocalStack's NAT Gateway support is limited. Tests that create VPC stacks accept both `CREATE_COMPLETE` and `CREATE_FAILED` stack status, since NAT Gateway creation may fail in LocalStack.
 
 3. **Resource Validation**: Tests verify that resources are created but don't deeply validate all properties (e.g., IAM policy attachments, security group rules).
 
 ## Future Enhancements
 
-- [ ] Test actual Lambda invocation (requires Lambda function deployment to LocalStack)
-- [ ] Add tests for `bootstrap` command
-- [ ] Validate CloudFormation stack outputs
+- [ ] Validate CloudFormation stack outputs in detail
 - [ ] Test stack update operations
 - [ ] Test error handling and rollback scenarios
 - [ ] Add integration with CI/CD (Prow)

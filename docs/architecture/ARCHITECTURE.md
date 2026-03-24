@@ -83,20 +83,28 @@
 
 ### Optional Mode: Lambda for Event-Driven Workflows
 
-Lambda bootstrap is **optional** and used for CI/CD integration or event-driven automation. The same rosactl binary runs as a Lambda function.
+Lambda bootstrap is **optional** and used for CI/CD integration or event-driven automation. The same rosactl binary runs as a Lambda function via the `handler` subcommand.
 
 ```text
 ┌──────────────┐
 │   AWS Event  │
 │   Source     │
 └──────┬───────┘
-       │
-       ▼
+       │  JSON event payload
+       ▼  { "action": "apply-cluster-vpc", ... }
 ┌──────────────────────┐
 │  Lambda Function     │
 │  (Container: rosactl)│
+│  CMD: ["handler"]    │
 │  - Embedded Templates│
 │  - Same Binary       │
+└──────────┬───────────┘
+           │  delegates to service layer
+           ▼
+┌──────────────────────┐
+│  Service Layer       │
+│  clustervpc /        │
+│  clusteriam          │
 └──────────┬───────────┘
            │
            ▼
@@ -123,8 +131,17 @@ Command-line interface built with Cobra framework.
 - `cluster-iam list` - List all IAM stacks
 
 **Optional Lambda Bootstrap**:
-- `lambda create` - Deploy Lambda container
-- `lambda delete` - Remove Lambda function
+- `bootstrap create` - Deploy Lambda container function via CloudFormation
+- `handler` - Start the Lambda handler runtime (used as container CMD, hidden from help)
+
+### Service Layer
+
+Shared business logic used by both CLI commands and the Lambda handler:
+
+- `internal/services/clustervpc` - `CreateVPC()` and `DeleteVPC()` functions
+- `internal/services/clusteriam` - `CreateIAM()` and `DeleteIAM()` functions
+
+The service layer accepts request structs with AWS config, making the same logic available to CLI commands and Lambda event handling without duplication.
 
 ### CloudFormation Client
 
@@ -154,13 +171,38 @@ Validates and strips `https://` prefix from OIDC issuer URL for use in CloudForm
 
 ### Lambda Handler (Optional)
 
-Event-driven execution mode supporting:
+Event-driven execution mode invoked via `rosactl handler` (the container's default CMD).
+
+**Supported event actions**:
 - `apply-cluster-vpc` - Create VPC CloudFormation stack
 - `delete-cluster-vpc` - Delete VPC stack
 - `apply-cluster-iam` - Create IAM CloudFormation stack
 - `delete-cluster-iam` - Delete IAM stack
 
-The binary detects Lambda runtime via environment variable and switches modes automatically.
+**Event payload structure**:
+```json
+{
+  "action": "apply-cluster-vpc",
+  "cluster_name": "my-cluster",
+  "availability_zones": ["us-east-1a", "us-east-1b", "us-east-1c"],
+  "single_nat_gateway": true,
+  "vpc_cidr": "10.0.0.0/16",
+  "public_subnet_cidrs": ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"],
+  "private_subnet_cidrs": ["10.0.0.0/19", "10.0.32.0/19", "10.0.64.0/19"]
+}
+```
+
+**Response structure**:
+```json
+{
+  "action": "apply-cluster-vpc",
+  "stack_id": "arn:aws:cloudformation:...",
+  "outputs": { "VpcId": "vpc-...", "..." : "..." },
+  "error": ""
+}
+```
+
+The handler delegates to the service layer (`internal/services/clustervpc` and `internal/services/clusteriam`) for the actual CloudFormation operations.
 
 ## Data Flow
 
@@ -198,6 +240,16 @@ The binary detects Lambda runtime via environment variable and switches modes au
 6. CLI displays success message
 
 ## Design Decisions
+
+### Service Layer for Shared Logic
+
+**Decision**: Extract VPC and IAM business logic into a dedicated service layer (`internal/services/`).
+
+**Rationale**:
+- CLI commands and Lambda handler share identical CloudFormation logic
+- Single implementation means bug fixes and changes apply to both modes automatically
+- Service functions accept request structs with `aws.Config`, making them independently testable
+- Separation of concerns: CLI flag parsing vs. business logic vs. AWS API calls
 
 ### Direct CloudFormation vs Lambda Invocation
 
