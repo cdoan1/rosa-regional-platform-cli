@@ -18,6 +18,7 @@ import (
 type Event struct {
 	Action         string `json:"action"`
 	ClusterName    string `json:"cluster_name"`
+	Region         string `json:"region,omitempty"`
 	OIDCIssuerURL  string `json:"oidc_issuer_url"`
 	OIDCThumbprint string `json:"oidc_thumbprint"`
 	// VPC parameters
@@ -30,9 +31,27 @@ type Event struct {
 
 // Response represents the Lambda function output
 type Response struct {
-	StackID string            `json:"stack_id"`
-	Outputs map[string]string `json:"outputs"`
-	Error   string            `json:"error,omitempty"`
+	StackID     string              `json:"stack_id,omitempty"`
+	Outputs     map[string]string   `json:"outputs,omitempty"`
+	ClusterInfo *ClusterDescription `json:"cluster_info,omitempty"`
+	Error       string              `json:"error,omitempty"`
+}
+
+// ClusterDescription contains the full cluster resource description
+type ClusterDescription struct {
+	ClusterName string            `json:"cluster_name"`
+	Region      string            `json:"region"`
+	IAM         *StackDescription `json:"iam,omitempty"`
+	VPC         *StackDescription `json:"vpc,omitempty"`
+}
+
+// StackDescription contains CloudFormation stack details
+type StackDescription struct {
+	StackName    string            `json:"stack_name"`
+	StackID      string            `json:"stack_id"`
+	Status       string            `json:"status"`
+	CreationTime string            `json:"creation_time,omitempty"`
+	Outputs      map[string]string `json:"outputs,omitempty"`
 }
 
 // Handler is the Lambda function handler
@@ -48,6 +67,8 @@ func Handler(ctx context.Context, event Event) (Response, error) {
 		return applyClusterVPC(ctx, event)
 	case "delete-cluster-vpc":
 		return deleteClusterVPC(ctx, event)
+	case "describe-cluster":
+		return describeCluster(ctx, event)
 	default:
 		return Response{
 			Error: fmt.Sprintf("unknown action: %s", event.Action),
@@ -90,9 +111,9 @@ func applyClusterIAM(ctx context.Context, event Event) (Response, error) {
 		StackName:    stackName,
 		TemplateBody: templateBody,
 		Parameters: map[string]string{
-			"ClusterName":     event.ClusterName,
-			"OIDCIssuerURL":   event.OIDCIssuerURL,
-			"OIDCThumbprint":  event.OIDCThumbprint,
+			"ClusterName":    event.ClusterName,
+			"OIDCIssuerURL":  event.OIDCIssuerURL,
+			"OIDCThumbprint": event.OIDCThumbprint,
 		},
 		Capabilities: []types.Capability{
 			types.CapabilityCapabilityIam,
@@ -142,9 +163,9 @@ func updateClusterIAM(ctx context.Context, cfnClient *cloudformation.Client, eve
 		StackName:    stackName,
 		TemplateBody: templateBody,
 		Parameters: map[string]string{
-			"ClusterName":     event.ClusterName,
-			"OIDCIssuerURL":   event.OIDCIssuerURL,
-			"OIDCThumbprint":  event.OIDCThumbprint,
+			"ClusterName":    event.ClusterName,
+			"OIDCIssuerURL":  event.OIDCIssuerURL,
+			"OIDCThumbprint": event.OIDCThumbprint,
 		},
 		Capabilities: []types.Capability{
 			types.CapabilityCapabilityIam,
@@ -224,8 +245,8 @@ func applyClusterVPC(ctx context.Context, event Event) (Response, error) {
 	// Prepare stack parameters
 	stackName := fmt.Sprintf("rosa-%s-vpc", event.ClusterName)
 	params := map[string]string{
-		"ClusterName":       event.ClusterName,
-		"SingleNatGateway":  fmt.Sprintf("%t", event.SingleNatGateway),
+		"ClusterName":      event.ClusterName,
+		"SingleNatGateway": fmt.Sprintf("%t", event.SingleNatGateway),
 	}
 
 	// Add optional parameters
@@ -369,6 +390,82 @@ func deleteClusterVPC(ctx context.Context, event Event) (Response, error) {
 	}, nil
 }
 
+// describeCluster describes both IAM and VPC resources for a cluster
+func describeCluster(ctx context.Context, event Event) (Response, error) {
+	if event.ClusterName == "" {
+		return Response{Error: "cluster_name is required"}, fmt.Errorf("cluster_name is required")
+	}
+
+	fmt.Printf("Describing cluster resources for: %s\n", event.ClusterName)
+
+	// Load AWS config with region from event if provided
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return Response{Error: fmt.Sprintf("failed to load AWS config: %v", err)}, err
+	}
+
+	// Create CloudFormation client
+	cfnClient := cloudformation.NewClient(cfg)
+
+	clusterInfo := &ClusterDescription{
+		ClusterName: event.ClusterName,
+		Region:      cfg.Region,
+	}
+
+	// Describe IAM stack
+	iamStackName := fmt.Sprintf("rosa-%s-iam", event.ClusterName)
+	fmt.Printf("Describing IAM stack: %s\n", iamStackName)
+
+	iamStack, err := cfnClient.DescribeStack(ctx, iamStackName)
+	if err != nil {
+		fmt.Printf("Warning: failed to describe IAM stack: %v\n", err)
+		// Don't fail the entire operation if IAM stack doesn't exist
+	} else {
+		clusterInfo.IAM = &StackDescription{
+			StackName: iamStack.StackName,
+			StackID:   iamStack.StackID,
+			Status:    iamStack.Status,
+			Outputs:   iamStack.Outputs,
+		}
+		if iamStack.CreationTime != nil {
+			clusterInfo.IAM.CreationTime = iamStack.CreationTime.Format(time.RFC3339)
+		}
+	}
+
+	// Describe VPC stack
+	vpcStackName := fmt.Sprintf("rosa-%s-vpc", event.ClusterName)
+	fmt.Printf("Describing VPC stack: %s\n", vpcStackName)
+
+	vpcStack, err := cfnClient.DescribeStack(ctx, vpcStackName)
+	if err != nil {
+		fmt.Printf("Warning: failed to describe VPC stack: %v\n", err)
+		// Don't fail the entire operation if VPC stack doesn't exist
+	} else {
+		clusterInfo.VPC = &StackDescription{
+			StackName: vpcStack.StackName,
+			StackID:   vpcStack.StackID,
+			Status:    vpcStack.Status,
+			Outputs:   vpcStack.Outputs,
+		}
+		if vpcStack.CreationTime != nil {
+			clusterInfo.VPC.CreationTime = vpcStack.CreationTime.Format(time.RFC3339)
+		}
+	}
+
+	// Return error if both stacks are missing
+	if clusterInfo.IAM == nil && clusterInfo.VPC == nil {
+		return Response{
+			Error: fmt.Sprintf("no resources found for cluster: %s", event.ClusterName),
+		}, fmt.Errorf("no resources found for cluster: %s", event.ClusterName)
+	}
+
+	fmt.Printf("Successfully described cluster: %s\n", event.ClusterName)
+
+	return Response{
+		ClusterInfo: clusterInfo,
+	}, nil
+}
+
 // Start starts the Lambda handler
 func Start() {
 	lambda.Start(Handler)
@@ -379,9 +476,9 @@ func Start() {
 func readTemplateFile(filename string) (string, error) {
 	// Try multiple possible locations
 	locations := []string{
-		filepath.Join("/app/templates", filename),        // Lambda container
-		filepath.Join("templates", filename),              // Local development
-		filepath.Join("../../templates", filename),        // Relative paths
+		filepath.Join("/app/templates", filename),  // Lambda container
+		filepath.Join("templates", filename),       // Local development
+		filepath.Join("../../templates", filename), // Relative paths
 		filepath.Join("../../../templates", filename),
 	}
 

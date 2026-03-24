@@ -11,6 +11,17 @@ Parameters:
     Default: 'rosa-regional-platform-lambda'
     Description: 'Name of the Lambda function'
 
+  AllowCrossAccountInvoke:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: 'Allow any AWS account to invoke this Lambda (useful for cross-account scenarios)'
+
+Conditions:
+  AllowCrossAccount: !Equals [!Ref AllowCrossAccountInvoke, 'true']
+
 Resources:
   # Lambda Execution Role
   LambdaExecutionRole:
@@ -174,6 +185,25 @@ Resources:
           Value: rosactl
         - Key: Component
           Value: cluster-iam-lambda
+
+  # Allow current account to invoke (any IAM principal with lambda:InvokeFunction permission)
+  LambdaInvokePermissionCurrentAccount:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: !Ref AWS::AccountId
+
+  # Allow cross-account invocation from any AWS account (if enabled)
+  # Note: This allows ANY AWS account that knows the Lambda ARN to invoke it
+  # For production, consider using IAM resource policies to restrict to specific accounts
+  LambdaInvokePermissionCrossAccount:
+    Type: AWS::Lambda::Permission
+    Condition: AllowCrossAccount
+    Properties:
+      FunctionName: !Ref LambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: '*'
 
 Outputs:
   LambdaFunctionArn:

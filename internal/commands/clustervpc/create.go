@@ -100,7 +100,7 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 	// Prepare stack parameters
 	stackName := fmt.Sprintf("rosa-%s-vpc", opts.clusterName)
 	params := map[string]string{
-		"ClusterName":         opts.clusterName,
+		"ClusterName":        opts.clusterName,
 		"VpcCidr":            opts.vpcCidr,
 		"PublicSubnetCidrs":  strings.Join(publicSubnets, ","),
 		"PrivateSubnetCidrs": strings.Join(privateSubnets, ","),

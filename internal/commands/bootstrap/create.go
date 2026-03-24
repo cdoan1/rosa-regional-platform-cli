@@ -132,10 +132,10 @@ func stringPtr(s string) *string {
 func readTemplateFile(filename string) (string, error) {
 	// Try multiple possible locations
 	locations := []string{
-		filepath.Join("templates", filename),                    // Local development
-		filepath.Join("/app/templates", filename),               // Lambda container
-		filepath.Join("../../templates", filename),              // Relative to internal/commands/bootstrap
-		filepath.Join("../../../templates", filename),           // Another relative path
+		filepath.Join("templates", filename),          // Local development
+		filepath.Join("/app/templates", filename),     // Lambda container
+		filepath.Join("../../templates", filename),    // Relative to internal/commands/bootstrap
+		filepath.Join("../../../templates", filename), // Another relative path
 	}
 
 	// Also try relative to the executable
