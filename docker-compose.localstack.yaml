@@ -1,13 +1,17 @@
 services:
   localstack:
-    image: localstack/localstack:3.0
+    image: localstack/localstack-pro:latest
     container_name: rosa-cli-localstack
     ports:
       - "4566:4566"  # LocalStack gateway
       - "4510-4559:4510-4559"  # External service port range
     environment:
+      # LocalStack Pro Auth Token (optional - required for Pro features like Lambda containers)
+      # Set via: export LOCALSTACK_AUTH_TOKEN=your-token-here
+      # Or create .env file with: LOCALSTACK_AUTH_TOKEN=your-token-here
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN:-}
       # Services to enable
-      - SERVICES=cloudformation,iam,ec2,route53,lambda,ecr,s3
+      - SERVICES=cloudformation,iam,ec2,route53,lambda,ecr,s3,logs
       # Disable signature checking (easier for testing)
       - SKIP_SIGNATURE_VALIDATION=1
       # Enable debug output

@@ -7,6 +7,7 @@ import (
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/bootstrap"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/clusteriam"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/clustervpc"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/handler"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/version"
 	"github.com/spf13/cobra"
 )
@@ -35,6 +36,7 @@ func init() {
 	rootCmd.AddCommand(bootstrap.NewBootstrapCommand())
 	rootCmd.AddCommand(clusteriam.NewClusterIAMCommand())
 	rootCmd.AddCommand(clustervpc.NewClusterVPCCommand())
+	rootCmd.AddCommand(handler.NewHandlerCommand())
 	rootCmd.AddCommand(version.NewVersionCommand())
 }
 

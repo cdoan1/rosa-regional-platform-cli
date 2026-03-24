@@ -14,15 +14,41 @@ Parameters:
     Default: '10.0.0.0/16'
     AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
 
-  PublicSubnetCidrs:
-    Type: CommaDelimitedList
-    Description: 'CIDR blocks for public subnets (comma-separated, must match private subnet count)'
-    Default: '10.0.101.0/24,10.0.102.0/24,10.0.103.0/24'
+  PublicSubnetCidr1:
+    Type: String
+    Description: 'CIDR block for public subnet 1'
+    Default: '10.0.101.0/24'
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
 
-  PrivateSubnetCidrs:
-    Type: CommaDelimitedList
-    Description: 'CIDR blocks for private subnets where worker nodes will run'
-    Default: '10.0.0.0/19,10.0.32.0/19,10.0.64.0/19'
+  PublicSubnetCidr2:
+    Type: String
+    Description: 'CIDR block for public subnet 2'
+    Default: '10.0.102.0/24'
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+
+  PublicSubnetCidr3:
+    Type: String
+    Description: 'CIDR block for public subnet 3'
+    Default: '10.0.103.0/24'
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+
+  PrivateSubnetCidr1:
+    Type: String
+    Description: 'CIDR block for private subnet 1 (worker nodes)'
+    Default: '10.0.0.0/19'
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+
+  PrivateSubnetCidr2:
+    Type: String
+    Description: 'CIDR block for private subnet 2 (worker nodes)'
+    Default: '10.0.32.0/19'
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+
+  PrivateSubnetCidr3:
+    Type: String
+    Description: 'CIDR block for private subnet 3 (worker nodes)'
+    Default: '10.0.64.0/19'
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
 
   AvailabilityZone1:
     Type: String
@@ -104,11 +130,8 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Select [0, !Ref PublicSubnetCidrs]
-      AvailabilityZone: !If
-        - HasAZ1
-        - !Ref AvailabilityZone1
-        - !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnetCidr1
+      AvailabilityZone: !Ref AvailabilityZone1
       Tags:
         - Key: Name
           Value: !Sub '${ClusterName}-hc-public-${AWS::Region}a'
@@ -122,11 +145,8 @@ Resources:
     Condition: HasAZ2
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Select [1, !Ref PublicSubnetCidrs]
-      AvailabilityZone: !If
-        - HasAZ2
-        - !Ref AvailabilityZone2
-        - !Select [1, !GetAZs '']
+      CidrBlock: !Ref PublicSubnetCidr2
+      AvailabilityZone: !Ref AvailabilityZone2
       Tags:
         - Key: Name
           Value: !Sub '${ClusterName}-hc-public-${AWS::Region}b'
@@ -140,11 +160,8 @@ Resources:
     Condition: HasAZ3
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Select [2, !Ref PublicSubnetCidrs]
-      AvailabilityZone: !If
-        - HasAZ3
-        - !Ref AvailabilityZone3
-        - !Select [2, !GetAZs '']
+      CidrBlock: !Ref PublicSubnetCidr3
+      AvailabilityZone: !Ref AvailabilityZone3
       Tags:
         - Key: Name
           Value: !Sub '${ClusterName}-hc-public-${AWS::Region}c'
@@ -161,11 +178,8 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Select [0, !Ref PrivateSubnetCidrs]
-      AvailabilityZone: !If
-        - HasAZ1
-        - !Ref AvailabilityZone1
-        - !Select [0, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnetCidr1
+      AvailabilityZone: !Ref AvailabilityZone1
       Tags:
         - Key: Name
           Value: !Sub '${ClusterName}-hc-private-${AWS::Region}a'
@@ -179,11 +193,8 @@ Resources:
     Condition: HasAZ2
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Select [1, !Ref PrivateSubnetCidrs]
-      AvailabilityZone: !If
-        - HasAZ2
-        - !Ref AvailabilityZone2
-        - !Select [1, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnetCidr2
+      AvailabilityZone: !Ref AvailabilityZone2
       Tags:
         - Key: Name
           Value: !Sub '${ClusterName}-hc-private-${AWS::Region}b'
@@ -197,11 +208,8 @@ Resources:
     Condition: HasAZ3
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: !Select [2, !Ref PrivateSubnetCidrs]
-      AvailabilityZone: !If
-        - HasAZ3
-        - !Ref AvailabilityZone3
-        - !Select [2, !GetAZs '']
+      CidrBlock: !Ref PrivateSubnetCidr3
+      AvailabilityZone: !Ref AvailabilityZone3
       Tags:
         - Key: Name
           Value: !Sub '${ClusterName}-hc-private-${AWS::Region}c'

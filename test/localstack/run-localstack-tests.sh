@@ -54,8 +54,8 @@ export AWS_ACCESS_KEY_ID="test"
 export AWS_SECRET_ACCESS_KEY="test"
 export AWS_REGION="us-east-1"
 
-# Run Ginkgo tests
-echo -e "${YELLOW}Running Ginkgo tests against LocalStack...${NC}"
+# Run Ginkgo tests (includes CLI and Lambda handler tests)
+echo -e "${YELLOW}Running all LocalStack integration tests...${NC}"
 cd test/localstack
 ginkgo -v
 

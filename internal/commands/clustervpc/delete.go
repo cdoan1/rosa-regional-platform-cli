@@ -2,12 +2,10 @@ package clustervpc
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/cloudformation"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/services/clustervpc"
 	"github.com/spf13/cobra"
 )
 
@@ -53,25 +51,20 @@ func runDelete(ctx context.Context, opts *deleteOptions) error {
 		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	// Create CloudFormation client
-	cfnClient := cloudformation.NewClient(cfg)
+	// Create service request
+	req := &clustervpc.DeleteVPCRequest{
+		ClusterName: opts.clusterName,
+		AWSConfig:   cfg,
+	}
 
-	// Delete stack
-	stackName := fmt.Sprintf("rosa-%s-vpc", opts.clusterName)
-
-	fmt.Printf("☁️  Deleting CloudFormation stack: %s\n", stackName)
+	fmt.Printf("☁️  Deleting CloudFormation stack: rosa-%s-vpc\n", opts.clusterName)
 	fmt.Println("   This may take several minutes...")
 	fmt.Println()
 
-	err = cfnClient.DeleteStack(ctx, stackName, 15*time.Minute)
+	// Call service layer
+	err = clustervpc.DeleteVPC(ctx, req)
 	if err != nil {
-		// Check if stack doesn't exist
-		var notFoundErr *cloudformation.StackNotFoundError
-		if errors.As(err, &notFoundErr) {
-			fmt.Println("ℹ️  Stack not found, may have been already deleted")
-			return nil
-		}
-		return fmt.Errorf("failed to delete stack: %w", err)
+		return err
 	}
 
 	fmt.Println("✅ Cluster VPC resources deleted successfully!")
