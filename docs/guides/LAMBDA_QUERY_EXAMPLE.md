@@ -119,6 +119,8 @@ To invoke the Lambda function:
   rosactl lambda invoke cluster-query-lambda --cluster-name test-cluster --region us-east-2
 ```
 
+**Important:** Save the `LambdaFunctionArn` output - you'll need it for cross-account invocations.
+
 ## Step 4: Invoke Lambda to Query Cluster Configuration
 
 Invoke the Lambda function to retrieve all cluster resource information:
@@ -240,10 +242,26 @@ rosactl cluster-iam describe test-cluster --region us-east-2
 rosactl cluster-vpc describe test-cluster --region us-east-2
 ```
 
-## External Invocation via AWS CLI
+## Cross-Account Invocation
+
+For cross-account scenarios, use the full Lambda ARN instead of the function name:
+
+### Using rosactl CLI
+
+```bash
+# From a different AWS account (requires --allow-cross-account when creating)
+rosactl lambda invoke arn:aws:lambda:us-east-2:123456789012:function:cluster-query-lambda \
+  --cluster-name test-cluster \
+  --region us-east-2
+```
+
+**Note:** The Lambda must be created with `--allow-cross-account` flag for this to work.
+
+### Using AWS CLI
 
 External systems can invoke the Lambda directly using the AWS CLI:
 
+**Same Account:**
 ```bash
 aws lambda invoke \
   --function-name cluster-query-lambda \
@@ -254,7 +272,7 @@ aws lambda invoke \
 cat response.json | jq .
 ```
 
-**Cross-Account Invocation:**
+**Cross-Account:**
 ```bash
 # From a different AWS account (requires --allow-cross-account)
 aws lambda invoke \
@@ -294,6 +312,10 @@ This Lambda-based query approach is useful for:
 ## Security Considerations
 
 - **Same Account (default)**: Lambda can only be invoked by IAM principals in the same AWS account
+  - Use function name: `cluster-query-lambda`
 - **Cross-Account**: Use `--allow-cross-account` flag to allow any AWS account to invoke
+  - Must use full ARN: `arn:aws:lambda:us-east-2:123456789012:function:cluster-query-lambda`
+  - Invoking account needs `lambda:InvokeFunction` permission on the ARN
 - **IAM Permissions**: Ensure the Lambda execution role has sufficient CloudFormation read permissions
 - **Network**: Lambda runs in AWS's managed VPC by default (no VPC configuration needed)
+- **ARN Discovery**: The Lambda ARN is output when creating the function - save it for cross-account use

@@ -20,15 +20,24 @@ func newInvokeCommand() *cobra.Command {
 	opts := &invokeOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "invoke FUNCTION_NAME",
+		Use:   "invoke FUNCTION_NAME_OR_ARN",
 		Short: "Invoke Lambda function to describe cluster resources",
 		Long: `Invoke the Lambda function to retrieve cluster IAM and VPC resource information.
 
 The Lambda function will query both cluster-iam and cluster-vpc CloudFormation
 stacks and return their outputs in JSON format.
 
-Example:
+For same-account invocation, use the function name.
+For cross-account invocation, use the full Lambda ARN.
+
+Examples:
+  # Same account
   rosactl lambda invoke my-cluster-lambda \
+    --cluster-name test-cluster \
+    --region us-east-2
+
+  # Cross-account (use full ARN)
+  rosactl lambda invoke arn:aws:lambda:us-east-2:123456789012:function:my-cluster-lambda \
     --cluster-name test-cluster \
     --region us-east-2`,
 		Args: cobra.ExactArgs(1),
