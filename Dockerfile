@@ -26,9 +26,6 @@ RUN microdnf install -y ca-certificates tar gzip && microdnf clean all
 # Copy the Go binary
 COPY --from=builder /build/rosactl /usr/local/bin/rosactl
 
-# Copy CloudFormation templates
-COPY templates/ /app/templates/
-
 # Create non-root user
 RUN useradd -u 1001 -r -g 0 -m -d /app -s /sbin/nologin \
     -c "Lambda user" lambda
@@ -45,3 +42,4 @@ WORKDIR /app
 # Lambda handler entrypoint
 # When Lambda invokes the container, it will call this command
 ENTRYPOINT ["/usr/local/bin/rosactl"]
+CMD ["handler"]

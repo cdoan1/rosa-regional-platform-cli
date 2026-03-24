@@ -99,6 +99,7 @@ var _ = Describe("rosactl LocalStack Integration", func() {
 			createCmd := exec.CommandContext(ctx, binaryPath, "cluster-vpc", "create", testCluster,
 				"--region", awsRegion,
 				"--availability-zones", "us-east-1a,us-east-1b,us-east-1c",
+				"--single-nat-gateway=false", // Use multi-NAT to avoid LocalStack conditional resource deletion bug
 			)
 			createCmd.Env = append(os.Environ(),
 				fmt.Sprintf("AWS_ENDPOINT_URL=%s", localstackURL),

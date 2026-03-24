@@ -1,0 +1,179 @@
+{
+  "data": {
+    "apiVersion": "work.open-cluster-management.io/v1",
+    "kind": "ManifestWork",
+    "metadata": {
+      "name": "test-cluster"
+    },
+    "spec": {
+      "workload": {
+        "manifests": [
+          {
+            "apiVersion": "hypershift.openshift.io/v1beta1",
+            "kind": "HostedCluster",
+            "metadata": {
+              "name": "test-cluster",
+              "namespace": "clusters",
+              "annotations": {
+                "hypershift.openshift.io/pod-security-admission-label-override": "privileged",
+                "hypershift.openshift.io/control-plane-operator-image": "quay.io/psav/hypershift:test20"
+              }
+            },
+            "spec": {
+              "infraID": "test-cluster",
+              "dns": {
+                "baseDomain": "example.com"
+              },
+              "release": {
+                "image": "quay.io/openshift-release-dev/ocp-release:4.21.1-multi"
+              },
+              "pullSecret": {
+                "name": "pull-secret"
+              },
+              "sshKey": {
+                "name": "ssh-key"
+              },
+              "networking": {
+                "clusterNetwork": [
+                  {
+                    "cidr": "10.132.0.0/14"
+                  }
+                ],
+                "serviceNetwork": [
+                  {
+                    "cidr": "172.31.0.0/16"
+                  }
+                ],
+                "machineNetwork": [
+                  {
+                    "cidr": "10.0.0.0/16"
+                  }
+                ],
+                "networkType": "OVNKubernetes"
+              },
+              "platform": {
+                "type": "AWS",
+                "aws": {
+                  "region": "us-east-1",
+                  "cloudProviderConfig": {
+                    "vpc": "vpc-07304a44ce0d3a2f7",
+                    "subnet": {
+                      "id": "subnet-0f0fa8b3602ce9165"
+                    }
+                  },
+                  "endpointAccess": "Private",
+                  "rolesRef": {
+                    "controlPlaneOperatorARN": "arn:aws:iam::212919532560:role/test-cluster-control-plane-operator",
+                    "ingressARN": "arn:aws:iam::212919532560:role/test-cluster-ingress",
+                    "imageRegistryARN": "arn:aws:iam::212919532560:role/test-cluster-image-registry",
+                    "kubeCloudControllerARN": "arn:aws:iam::212919532560:role/test-cluster-cloud-controller-manager",
+                    "nodePoolManagementARN": "arn:aws:iam::212919532560:role/test-cluster-node-pool-management",
+                    "networkARN": "arn:aws:iam::212919532560:role/test-cluster-network-config",
+                    "storageARN": "arn:aws:iam::212919532560:role/test-cluster-ebs-csi"
+                  },
+                  "resourceTags": 
+                  [
+                    {
+                      "key": "red-hat-managed",
+                      "value": "true"
+                    }
+                  ]
+                }
+              },
+              "issuerURL": "https://d34ejts6ujzcln.cloudfront.net/test-cluster",
+              "services": [
+                {
+                  "service": "APIServer",
+                  "servicePublishingStrategy": {
+                    "type": "LoadBalancer"
+                  }
+                },
+                {
+                  "service": "OAuthServer",
+                  "servicePublishingStrategy": {
+                    "type": "Route"
+                  }
+                },
+                {
+                  "service": "Konnectivity",
+                  "servicePublishingStrategy": {
+                    "type": "Route"
+                  }
+                },
+                {
+                  "service": "Ignition",
+                  "servicePublishingStrategy": {
+                    "type": "Route"
+                  }
+                }
+              ],
+              "infrastructureAvailabilityPolicy": "SingleReplica",
+              "controllerAvailabilityPolicy": "SingleReplica"
+            }
+          },
+          {
+            "apiVersion": "hypershift.openshift.io/v1beta1",
+            "kind": "NodePool",
+            "metadata": {
+              "name": "test-cluster-workers",
+              "namespace": "clusters"
+            },
+            "spec": {
+              "clusterName": "test-cluster",
+              "replicas": 2,
+              "management": {
+                "autoRepair": true,
+                "upgradeType": "Replace"
+              },
+              "release": {
+                "image": "quay.io/openshift-release-dev/ocp-release:4.21.1-multi"
+              },
+              "platform": {
+                "type": "AWS",
+                "aws": {
+                  "instanceType": "m6a.xlarge",
+                  "rootVolume": {
+                    "size": 120,
+                    "type": "gp3"
+                  },
+                  "subnet": {
+                    "id": "subnet-0f0fa8b3602ce9165"
+                  },
+                  "instanceProfile": "test-cluster-ROSA-Worker-Role",
+                  "securityGroups": [
+                    {
+                      "id": "sg-08961c95de647c1a6"
+                    }
+                  ],
+                  "resourceTags": 
+                  [
+                    {
+                      "key": "red-hat-managed",
+                      "value": "true"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+              "name": "ssh-key",
+              "namespace": "clusters"
+            },
+            "type": "Opaque",
+            "data": {
+              "id_rsa.pub": ""
+            }
+          }
+        ]
+      },
+      "deleteOption": {
+        "propagationPolicy": "Foreground"
+      }
+    }
+  },
+  "cluster_id": "mc01"
+}

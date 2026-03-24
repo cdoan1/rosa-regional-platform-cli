@@ -3,13 +3,12 @@ package bootstrap
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/cloudformation"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/cloudformation/templates"
 	"github.com/spf13/cobra"
 )
 
@@ -65,8 +64,8 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 	fmt.Printf("   Region: %s\n", opts.region)
 	fmt.Println()
 
-	// Read template file
-	templateBody, err := readTemplateFile("lambda-bootstrap.yaml")
+	// Read template file from embedded templates
+	templateBody, err := templates.Read("lambda-bootstrap.yaml")
 	if err != nil {
 		return fmt.Errorf("failed to read template: %w", err)
 	}
@@ -125,33 +124,4 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 
 func stringPtr(s string) *string {
 	return &s
-}
-
-// readTemplateFile reads a CloudFormation template from the templates directory
-// It looks for the template in: ./templates/, /app/templates/ (Lambda container), or relative to executable
-func readTemplateFile(filename string) (string, error) {
-	// Try multiple possible locations
-	locations := []string{
-		filepath.Join("templates", filename),                    // Local development
-		filepath.Join("/app/templates", filename),               // Lambda container
-		filepath.Join("../../templates", filename),              // Relative to internal/commands/bootstrap
-		filepath.Join("../../../templates", filename),           // Another relative path
-	}
-
-	// Also try relative to the executable
-	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		locations = append(locations, filepath.Join(exeDir, "templates", filename))
-	}
-
-	var lastErr error
-	for _, location := range locations {
-		data, err := os.ReadFile(location)
-		if err == nil {
-			return string(data), nil
-		}
-		lastErr = err
-	}
-
-	return "", fmt.Errorf("template file %s not found in any of the expected locations: %w", filename, lastErr)
 }

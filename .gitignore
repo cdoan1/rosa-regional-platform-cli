@@ -2,3 +2,4 @@ bin
 rosactl
 coverage.out
 tmp/
+.env
