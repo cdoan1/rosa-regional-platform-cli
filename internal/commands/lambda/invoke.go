@@ -42,8 +42,8 @@ Example:
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
 	cmd.Flags().BoolVar(&opts.outputJSON, "output", false, "Output raw JSON response")
 
-	cmd.MarkFlagRequired("cluster-name")
-	cmd.MarkFlagRequired("region")
+	_ = cmd.MarkFlagRequired("cluster-name")
+	_ = cmd.MarkFlagRequired("region")
 
 	return cmd
 }
@@ -86,7 +86,7 @@ func runInvoke(ctx context.Context, opts *invokeOptions) error {
 
 	// Check for errors in response
 	if errMsg, ok := result["error"].(string); ok && errMsg != "" {
-		return fmt.Errorf("Lambda error: %s", errMsg)
+		return fmt.Errorf("lambda error: %s", errMsg)
 	}
 
 	// Output results

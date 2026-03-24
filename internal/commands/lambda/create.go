@@ -60,8 +60,8 @@ Example:
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
 	cmd.Flags().BoolVar(&opts.allowCrossAccount, "allow-cross-account", false, "Allow any AWS account to invoke this Lambda (default: same account only)")
 
-	cmd.MarkFlagRequired("image-uri")
-	cmd.MarkFlagRequired("region")
+	_ = cmd.MarkFlagRequired("image-uri")
+	_ = cmd.MarkFlagRequired("region")
 
 	return cmd
 }
