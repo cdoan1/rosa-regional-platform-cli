@@ -16,6 +16,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation"
 	"github.com/aws/aws-sdk-go-v2/service/ecr"
 	"github.com/aws/aws-sdk-go-v2/service/iam"
@@ -60,6 +61,7 @@ var _ = Describe("Lambda Handler LocalStack Integration", func() {
 		// Create AWS clients pointing to LocalStack
 		cfg, err := config.LoadDefaultConfig(ctx,
 			config.WithRegion(awsRegion),
+			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
 			config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
 				func(service, region string, options ...interface{}) (aws.Endpoint, error) {
 					return aws.Endpoint{
@@ -81,10 +83,6 @@ var _ = Describe("Lambda Handler LocalStack Integration", func() {
 		projectRoot := filepath.Join("..", "..")
 		binaryPath = filepath.Join(projectRoot, "rosactl")
 
-		// Repository name for Lambda container
-		repositoryName = "rosa-regional-platform-lambda"
-		functionName = "rosa-regional-platform-lambda"
-
 		// Create dummy AWS-managed policies for LocalStack
 		createDummyAWSManagedPolicies(ctx, iamClient)
 	})
@@ -93,7 +91,7 @@ var _ = Describe("Lambda Handler LocalStack Integration", func() {
 		// Cleanup: delete CloudFormation stacks
 		By("Cleaning up CloudFormation stacks")
 		stackNames := []string{
-			"rosa-regional-platform-lambda", // Lambda bootstrap stack
+			functionName, // Lambda bootstrap stack (stack-name defaults to function-name)
 			fmt.Sprintf("rosa-%s-vpc", testCluster),
 			fmt.Sprintf("rosa-%s-iam", testCluster),
 		}
@@ -419,11 +417,14 @@ func deployLambdaViaCLI(ctx context.Context, binaryPath, imageURI, functionName,
 	createCmd := exec.CommandContext(ctx, binaryPath, "bootstrap", "create",
 		"--image-uri", imageURI,
 		"--function-name", functionName,
+		"--stack-name", functionName,
 		"--region", awsRegion,
 	)
 	createCmd.Env = append(os.Environ(),
 		fmt.Sprintf("AWS_ENDPOINT_URL=%s", localstackURL),
 		fmt.Sprintf("AWS_REGION=%s", awsRegion),
+		"AWS_ACCESS_KEY_ID=test",
+		"AWS_SECRET_ACCESS_KEY=test",
 	)
 
 	createSession, err := gexec.Start(createCmd, GinkgoWriter, GinkgoWriter)
@@ -451,11 +452,7 @@ func invokeLambda(ctx context.Context, lambdaClient *lambda.Client, functionName
 		Payload:        payloadBytes,
 	})
 	Expect(err).NotTo(HaveOccurred(), "Lambda invocation should succeed")
-
-	if output.FunctionError != nil {
-		GinkgoWriter.Printf("Lambda function error: %s\n", *output.FunctionError)
-		GinkgoWriter.Printf("Payload: %s\n", string(output.Payload))
-	}
+	Expect(output.FunctionError).To(BeNil(), "Lambda returned a function error: %s", string(output.Payload))
 
 	return string(output.Payload)
 }

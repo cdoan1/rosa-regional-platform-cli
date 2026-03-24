@@ -164,6 +164,17 @@ func updateVPC(ctx context.Context, cfnClient *cloudformation.Client, req *Creat
 
 	output, err := cfnClient.UpdateStack(ctx, updateParams)
 	if err != nil {
+		var noChanges *cloudformation.NoChangesError
+		if errors.As(err, &noChanges) {
+			current, descErr := cfnClient.GetStackOutputs(ctx, stackName)
+			if descErr != nil {
+				return nil, descErr
+			}
+			return &CreateVPCResponse{
+				StackID: current.StackID,
+				Outputs: current.Outputs,
+			}, nil
+		}
 		return nil, fmt.Errorf("failed to update stack: %w", err)
 	}
 
@@ -182,6 +193,10 @@ func DeleteVPC(ctx context.Context, req *DeleteVPCRequest) error {
 	stackName := fmt.Sprintf("rosa-%s-vpc", req.ClusterName)
 	err := cfnClient.DeleteStack(ctx, stackName, 15*time.Minute)
 	if err != nil {
+		var notFound *cloudformation.StackNotFoundError
+		if errors.As(err, &notFound) {
+			return nil
+		}
 		return fmt.Errorf("failed to delete stack: %w", err)
 	}
 

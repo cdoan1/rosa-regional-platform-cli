@@ -92,8 +92,8 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 		AWSConfig:      cfg,
 	}
 
-	fmt.Println("📄 Loading CloudFormation template...")
-	fmt.Printf("☁️  Creating CloudFormation stack: rosa-%s-iam\n", opts.clusterName)
+	fmt.Println("📄 Preparing IAM CloudFormation operation...")
+	fmt.Printf("☁️  Creating or updating CloudFormation stack: rosa-%s-iam\n", opts.clusterName)
 	fmt.Println("   This may take several minutes...")
 	fmt.Println()
 

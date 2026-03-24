@@ -131,6 +131,17 @@ func updateIAM(ctx context.Context, cfnClient *cloudformation.Client, req *Creat
 
 	output, err := cfnClient.UpdateStack(ctx, params)
 	if err != nil {
+		var noChanges *cloudformation.NoChangesError
+		if errors.As(err, &noChanges) {
+			current, descErr := cfnClient.GetStackOutputs(ctx, stackName)
+			if descErr != nil {
+				return nil, descErr
+			}
+			return &CreateIAMResponse{
+				StackID: current.StackID,
+				Outputs: current.Outputs,
+			}, nil
+		}
 		return nil, fmt.Errorf("failed to update stack: %w", err)
 	}
 
@@ -149,6 +160,10 @@ func DeleteIAM(ctx context.Context, req *DeleteIAMRequest) error {
 	stackName := fmt.Sprintf("rosa-%s-iam", req.ClusterName)
 	err := cfnClient.DeleteStack(ctx, stackName, 15*time.Minute)
 	if err != nil {
+		var notFound *cloudformation.StackNotFoundError
+		if errors.As(err, &notFound) {
+			return nil
+		}
 		return fmt.Errorf("failed to delete stack: %w", err)
 	}
 

@@ -27,7 +27,7 @@ type Event struct {
 // Response represents the Lambda function output
 type Response struct {
 	Action  string            `json:"action"`
-	StackID string            `json:"stack_id"`
+	StackID string            `json:"stack_id,omitempty"`
 	Outputs map[string]string `json:"outputs"`
 	Error   string            `json:"error,omitempty"`
 }
@@ -46,20 +46,17 @@ func Handler(ctx context.Context, event Event) (Response, error) {
 	case "delete-cluster-vpc":
 		return deleteClusterVPC(ctx, event)
 	default:
-		return Response{
-			Action: event.Action,
-			Error:  fmt.Sprintf("unknown action: %s", event.Action),
-		}, fmt.Errorf("unknown action: %s", event.Action)
+		return Response{}, fmt.Errorf("unknown action: %s", event.Action)
 	}
 }
 
 // applyClusterIAM applies the cluster IAM CloudFormation template
 func applyClusterIAM(ctx context.Context, event Event) (Response, error) {
 	if event.ClusterName == "" {
-		return Response{Action: "apply-cluster-iam", Error: "cluster_name is required"}, fmt.Errorf("cluster_name is required")
+		return Response{}, fmt.Errorf("cluster_name is required")
 	}
 	if event.OIDCIssuerURL == "" {
-		return Response{Action: "apply-cluster-iam", Error: "oidc_issuer_url is required"}, fmt.Errorf("oidc_issuer_url is required")
+		return Response{}, fmt.Errorf("oidc_issuer_url is required")
 	}
 
 	fmt.Println("Applying cluster IAM CloudFormation template...")
@@ -67,7 +64,7 @@ func applyClusterIAM(ctx context.Context, event Event) (Response, error) {
 	// Load AWS config
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return Response{Action: "apply-cluster-iam", Error: fmt.Sprintf("failed to load AWS config: %v", err)}, err
+		return Response{}, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	// Call service layer
@@ -78,7 +75,7 @@ func applyClusterIAM(ctx context.Context, event Event) (Response, error) {
 		AWSConfig:      cfg,
 	})
 	if err != nil {
-		return Response{Action: "apply-cluster-iam", Error: fmt.Sprintf("failed to create IAM: %v", err)}, err
+		return Response{}, fmt.Errorf("failed to create IAM: %w", err)
 	}
 
 	fmt.Printf("Stack created successfully: %s\n", result.StackID)
@@ -93,7 +90,7 @@ func applyClusterIAM(ctx context.Context, event Event) (Response, error) {
 // deleteClusterIAM deletes the cluster IAM CloudFormation stack
 func deleteClusterIAM(ctx context.Context, event Event) (Response, error) {
 	if event.ClusterName == "" {
-		return Response{Action: "delete-cluster-iam", Error: "cluster_name is required"}, fmt.Errorf("cluster_name is required")
+		return Response{}, fmt.Errorf("cluster_name is required")
 	}
 
 	fmt.Printf("Deleting cluster IAM CloudFormation stack for: %s\n", event.ClusterName)
@@ -101,7 +98,7 @@ func deleteClusterIAM(ctx context.Context, event Event) (Response, error) {
 	// Load AWS config
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return Response{Action: "delete-cluster-iam", Error: fmt.Sprintf("failed to load AWS config: %v", err)}, err
+		return Response{}, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	// Call service layer
@@ -110,15 +107,13 @@ func deleteClusterIAM(ctx context.Context, event Event) (Response, error) {
 		AWSConfig:   cfg,
 	})
 	if err != nil {
-		return Response{Action: "delete-cluster-iam", Error: fmt.Sprintf("failed to delete IAM: %v", err)}, err
+		return Response{}, fmt.Errorf("failed to delete IAM: %w", err)
 	}
 
-	stackName := fmt.Sprintf("rosa-%s-iam", event.ClusterName)
-	fmt.Printf("Stack deleted successfully: %s\n", stackName)
+	fmt.Printf("Stack deleted successfully: rosa-%s-iam\n", event.ClusterName)
 
 	return Response{
 		Action:  "delete-cluster-iam",
-		StackID: stackName,
 		Outputs: map[string]string{"status": "deleted"},
 	}, nil
 }
@@ -126,7 +121,7 @@ func deleteClusterIAM(ctx context.Context, event Event) (Response, error) {
 // applyClusterVPC applies the cluster VPC CloudFormation template
 func applyClusterVPC(ctx context.Context, event Event) (Response, error) {
 	if event.ClusterName == "" {
-		return Response{Action: "apply-cluster-vpc", Error: "cluster_name is required"}, fmt.Errorf("cluster_name is required")
+		return Response{}, fmt.Errorf("cluster_name is required")
 	}
 
 	fmt.Println("Applying cluster VPC CloudFormation template...")
@@ -134,7 +129,7 @@ func applyClusterVPC(ctx context.Context, event Event) (Response, error) {
 	// Load AWS config
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return Response{Action: "apply-cluster-vpc", Error: fmt.Sprintf("failed to load AWS config: %v", err)}, err
+		return Response{}, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	// Call service layer
@@ -148,7 +143,7 @@ func applyClusterVPC(ctx context.Context, event Event) (Response, error) {
 		AWSConfig:          cfg,
 	})
 	if err != nil {
-		return Response{Action: "apply-cluster-vpc", Error: fmt.Sprintf("failed to create VPC: %v", err)}, err
+		return Response{}, fmt.Errorf("failed to create VPC: %w", err)
 	}
 
 	fmt.Printf("Stack created successfully: %s\n", result.StackID)
@@ -163,7 +158,7 @@ func applyClusterVPC(ctx context.Context, event Event) (Response, error) {
 // deleteClusterVPC deletes the cluster VPC CloudFormation stack
 func deleteClusterVPC(ctx context.Context, event Event) (Response, error) {
 	if event.ClusterName == "" {
-		return Response{Action: "delete-cluster-vpc", Error: "cluster_name is required"}, fmt.Errorf("cluster_name is required")
+		return Response{}, fmt.Errorf("cluster_name is required")
 	}
 
 	fmt.Printf("Deleting cluster VPC CloudFormation stack for: %s\n", event.ClusterName)
@@ -171,7 +166,7 @@ func deleteClusterVPC(ctx context.Context, event Event) (Response, error) {
 	// Load AWS config
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
-		return Response{Action: "delete-cluster-vpc", Error: fmt.Sprintf("failed to load AWS config: %v", err)}, err
+		return Response{}, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	// Call service layer
@@ -180,15 +175,13 @@ func deleteClusterVPC(ctx context.Context, event Event) (Response, error) {
 		AWSConfig:   cfg,
 	})
 	if err != nil {
-		return Response{Action: "delete-cluster-vpc", Error: fmt.Sprintf("failed to delete VPC: %v", err)}, err
+		return Response{}, fmt.Errorf("failed to delete VPC: %w", err)
 	}
 
-	stackName := fmt.Sprintf("rosa-%s-vpc", event.ClusterName)
-	fmt.Printf("Stack deleted successfully: %s\n", stackName)
+	fmt.Printf("Stack deleted successfully: rosa-%s-vpc\n", event.ClusterName)
 
 	return Response{
 		Action:  "delete-cluster-vpc",
-		StackID: stackName,
 		Outputs: map[string]string{"status": "deleted"},
 	}, nil
 }
@@ -197,4 +190,3 @@ func deleteClusterVPC(ctx context.Context, event Event) (Response, error) {
 func Start() {
 	lambda.Start(Handler)
 }
-
