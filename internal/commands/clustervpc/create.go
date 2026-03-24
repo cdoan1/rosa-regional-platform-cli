@@ -2,16 +2,11 @@ package clustervpc
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
-	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/cloudformation"
-	"github.com/openshift-online/rosa-regional-platform-cli/internal/cloudformation/templates"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/services/clustervpc"
 	"github.com/spf13/cobra"
 )
 
@@ -77,159 +72,51 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 	fmt.Printf("   Single NAT Gateway: %t\n", opts.singleNatGateway)
 	fmt.Println()
 
-	// Read CloudFormation template
-	fmt.Println("📄 Loading CloudFormation template...")
-	templateBody, err := templates.Read("cluster-vpc.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to read template: %w", err)
-	}
-
 	// Load AWS config
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(opts.region))
 	if err != nil {
 		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	// Create CloudFormation client
-	cfnClient := cloudformation.NewClient(cfg)
-
 	// Parse CIDR lists
 	publicSubnets := strings.Split(opts.publicSubnetCidrs, ",")
 	privateSubnets := strings.Split(opts.privateSubnetCidrs, ",")
 
-	// Prepare stack parameters
-	stackName := fmt.Sprintf("rosa-%s-vpc", opts.clusterName)
-	params := map[string]string{
-		"ClusterName":         opts.clusterName,
-		"VpcCidr":            opts.vpcCidr,
-		"PublicSubnetCidrs":  strings.Join(publicSubnets, ","),
-		"PrivateSubnetCidrs": strings.Join(privateSubnets, ","),
-		"SingleNatGateway":   fmt.Sprintf("%t", opts.singleNatGateway),
-	}
-
-	// Parse and add availability zones if provided
+	// Parse availability zones if provided
+	var azs []string
 	if opts.availabilityZones != "" {
-		azs := strings.Split(opts.availabilityZones, ",")
-		if len(azs) >= 1 {
-			params["AvailabilityZone1"] = azs[0]
-		}
-		if len(azs) >= 2 {
-			params["AvailabilityZone2"] = azs[1]
-		}
-		if len(azs) >= 3 {
-			params["AvailabilityZone3"] = azs[2]
-		}
+		azs = strings.Split(opts.availabilityZones, ",")
 	}
 
-	createParams := &cloudformation.CreateStackParams{
-		StackName:    stackName,
-		TemplateBody: templateBody,
-		Parameters:   params,
-		Tags: []types.Tag{
-			{
-				Key:   aws.String("Cluster"),
-				Value: aws.String(opts.clusterName),
-			},
-			{
-				Key:   aws.String("ManagedBy"),
-				Value: aws.String("rosactl"),
-			},
-			{
-				Key:   aws.String("red-hat-managed"),
-				Value: aws.String("true"),
-			},
-		},
-		WaitTimeout: 15 * time.Minute,
+	// Create service request
+	req := &clustervpc.CreateVPCRequest{
+		ClusterName:        opts.clusterName,
+		VpcCidr:            opts.vpcCidr,
+		PublicSubnetCidrs:  publicSubnets,
+		PrivateSubnetCidrs: privateSubnets,
+		AvailabilityZones:  azs,
+		SingleNatGateway:   opts.singleNatGateway,
+		AWSConfig:          cfg,
 	}
 
-	fmt.Printf("☁️  Creating CloudFormation stack: %s\n", stackName)
+	fmt.Println("📄 Loading CloudFormation template...")
+	fmt.Printf("☁️  Creating CloudFormation stack: rosa-%s-vpc\n", opts.clusterName)
 	fmt.Println("   This may take several minutes...")
 	fmt.Println()
 
-	// Create stack
-	output, err := cfnClient.CreateStack(ctx, createParams)
+	// Call service layer
+	resp, err := clustervpc.CreateVPC(ctx, req)
 	if err != nil {
-		// Check if stack already exists, try update instead
-		var alreadyExistsErr *cloudformation.StackAlreadyExistsError
-		if errors.As(err, &alreadyExistsErr) {
-			fmt.Println("ℹ️  Stack already exists, attempting update...")
-			return updateVPCStack(ctx, cfnClient, stackName, templateBody, params)
-		}
-
-		// Get stack events to show what failed
-		fmt.Println()
-		fmt.Println("❌ Stack creation failed. Recent events:")
-		events, evtErr := cfnClient.GetStackEvents(ctx, stackName, 10)
-		if evtErr == nil && len(events) > 0 {
-			for _, event := range events {
-				if event.ResourceStatus == "CREATE_FAILED" || event.ResourceStatusReason != "" {
-					fmt.Printf("   • %s: %s", event.LogicalResourceID, event.ResourceStatus)
-					if event.ResourceStatusReason != "" {
-						fmt.Printf(" - %s", event.ResourceStatusReason)
-					}
-					fmt.Println()
-				}
-			}
-		}
-		fmt.Println()
-
-		return fmt.Errorf("failed to create stack: %w", err)
+		return err
 	}
 
 	fmt.Println("✅ Cluster VPC resources created successfully!")
-	fmt.Printf("   Stack ID: %s\n", output.StackID)
+	fmt.Printf("   Stack ID: %s\n", resp.StackID)
 	fmt.Println()
 
-	if len(output.Outputs) > 0 {
+	if len(resp.Outputs) > 0 {
 		fmt.Println("Outputs:")
-		for key, value := range output.Outputs {
-			fmt.Printf("  %s: %s\n", key, value)
-		}
-	}
-
-	return nil
-}
-
-// updateVPCStack updates an existing cluster VPC CloudFormation stack
-func updateVPCStack(ctx context.Context, cfnClient *cloudformation.Client,
-	stackName, templateBody string, params map[string]string) error {
-	updateParams := &cloudformation.UpdateStackParams{
-		StackName:    stackName,
-		TemplateBody: templateBody,
-		Parameters:   params,
-		WaitTimeout:  15 * time.Minute,
-	}
-
-	fmt.Println("   Updating stack...")
-	output, err := cfnClient.UpdateStack(ctx, updateParams)
-	if err != nil {
-		// Check if no changes are needed
-		var noChangesErr *cloudformation.NoChangesError
-		if errors.As(err, &noChangesErr) {
-			fmt.Println("ℹ️  No changes needed, stack is up to date")
-			// Still get outputs
-			stackOutput, err := cfnClient.GetStackOutputs(ctx, stackName)
-			if err != nil {
-				return fmt.Errorf("failed to get stack outputs: %w", err)
-			}
-
-			fmt.Println()
-			fmt.Println("Stack Outputs:")
-			for key, value := range stackOutput.Outputs {
-				fmt.Printf("  %s: %s\n", key, value)
-			}
-			return nil
-		}
-		return fmt.Errorf("failed to update stack: %w", err)
-	}
-
-	fmt.Println("✅ Cluster VPC resources updated successfully!")
-	fmt.Printf("   Stack ID: %s\n", output.StackID)
-	fmt.Println()
-
-	if len(output.Outputs) > 0 {
-		fmt.Println("Updated Outputs:")
-		for key, value := range output.Outputs {
+		for key, value := range resp.Outputs {
 			fmt.Printf("  %s: %s\n", key, value)
 		}
 	}
