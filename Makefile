@@ -68,7 +68,7 @@ install: build
 
 tidy:
 	@echo "Tidying go modules..."
-	@go mod tidy
+	@GOFLAGS=-mod=mod go mod tidy
 	@echo "✓ Tidy complete"
 
 test:
