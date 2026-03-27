@@ -130,7 +130,6 @@ var _ = Describe("rosactl LocalStack Integration", func() {
 			// Accept CREATE_COMPLETE or CREATE_FAILED (LocalStack NAT Gateway limitation)
 			Expect(stackStatus).To(Or(Equal("CREATE_COMPLETE"), Equal("CREATE_FAILED")))
 
-
 			By("Listing stack resources")
 			resources, err := cfnClient.ListStackResources(ctx, &cloudformation.ListStackResourcesInput{
 				StackName: aws.String(stackName),
