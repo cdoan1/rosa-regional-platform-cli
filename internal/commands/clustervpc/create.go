@@ -60,7 +60,9 @@ Example:
 	cmd.Flags().StringVar(&opts.availabilityZones, "availability-zones", "", "Comma-separated availability zones (optional, auto-detected if empty)")
 	cmd.Flags().BoolVar(&opts.singleNatGateway, "single-nat-gateway", true, "Use single NAT gateway (true=cost savings, false=HA per-AZ)")
 
-	cmd.MarkFlagRequired("region")
+	if err := cmd.MarkFlagRequired("region"); err != nil {
+		panic(fmt.Sprintf("failed to mark region flag as required: %v", err))
+	}
 
 	return cmd
 }

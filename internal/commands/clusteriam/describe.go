@@ -36,7 +36,7 @@ Example:
 
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
 
-	cmd.MarkFlagRequired("region")
+	_ = cmd.MarkFlagRequired("region")
 
 	return cmd
 }
@@ -75,10 +75,10 @@ func runDescribe(ctx context.Context, opts *describeOptions) error {
 		var oidcProvider, controlPlaneRoles, workerResources []string
 
 		for key, value := range stack.Outputs {
-			switch {
-			case key == "OIDCProviderArn" || key == "OIDCProviderURL":
+			switch key {
+			case "OIDCProviderArn", "OIDCProviderURL":
 				oidcProvider = append(oidcProvider, fmt.Sprintf("  %s: %s", key, value))
-			case key == "WorkerRoleArn" || key == "WorkerInstanceProfileName":
+			case "WorkerRoleArn", "WorkerInstanceProfileName":
 				workerResources = append(workerResources, fmt.Sprintf("  %s: %s", key, value))
 			default:
 				controlPlaneRoles = append(controlPlaneRoles, fmt.Sprintf("  %s: %s", key, value))

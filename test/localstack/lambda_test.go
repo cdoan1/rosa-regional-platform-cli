@@ -62,22 +62,22 @@ var _ = Describe("Lambda Handler LocalStack Integration", func() {
 		cfg, err := config.LoadDefaultConfig(ctx,
 			config.WithRegion(awsRegion),
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
-			config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-				func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-					return aws.Endpoint{
-						URL:               localstackURL,
-						HostnameImmutable: true,
-						SigningRegion:     awsRegion,
-					}, nil
-				},
-			)),
 		)
 		Expect(err).NotTo(HaveOccurred())
 
-		cfnClient = cloudformation.NewFromConfig(cfg)
-		iamClient = iam.NewFromConfig(cfg)
-		lambdaClient = lambda.NewFromConfig(cfg)
-		ecrClient = ecr.NewFromConfig(cfg)
+		// Create service clients with LocalStack endpoint
+		cfnClient = cloudformation.NewFromConfig(cfg, func(o *cloudformation.Options) {
+			o.BaseEndpoint = aws.String(localstackURL)
+		})
+		iamClient = iam.NewFromConfig(cfg, func(o *iam.Options) {
+			o.BaseEndpoint = aws.String(localstackURL)
+		})
+		lambdaClient = lambda.NewFromConfig(cfg, func(o *lambda.Options) {
+			o.BaseEndpoint = aws.String(localstackURL)
+		})
+		ecrClient = ecr.NewFromConfig(cfg, func(o *ecr.Options) {
+			o.BaseEndpoint = aws.String(localstackURL)
+		})
 
 		// Find the rosactl binary
 		projectRoot := filepath.Join("..", "..")
@@ -256,10 +256,7 @@ var _ = Describe("Lambda Handler LocalStack Integration", func() {
 					StackName: aws.String(stackName),
 				})
 				if err != nil {
-					if strings.Contains(err.Error(), "does not exist") {
-						return true
-					}
-					return false
+					return strings.Contains(err.Error(), "does not exist")
 				}
 				if len(result.Stacks) == 0 {
 					return true
@@ -313,10 +310,7 @@ var _ = Describe("Lambda Handler LocalStack Integration", func() {
 					StackName: aws.String(stackName),
 				})
 				if err != nil {
-					if strings.Contains(err.Error(), "does not exist") {
-						return true
-					}
-					return false
+					return strings.Contains(err.Error(), "does not exist")
 				}
 				if len(result.Stacks) == 0 {
 					return true

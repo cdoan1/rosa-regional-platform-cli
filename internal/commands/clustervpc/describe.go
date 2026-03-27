@@ -33,7 +33,9 @@ Example:
 	}
 
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
-	cmd.MarkFlagRequired("region")
+	if err := cmd.MarkFlagRequired("region"); err != nil {
+		panic(fmt.Sprintf("failed to mark region flag as required: %v", err))
+	}
 
 	return cmd
 }

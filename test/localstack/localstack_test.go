@@ -56,20 +56,16 @@ var _ = Describe("rosactl LocalStack Integration", func() {
 		// Create AWS clients pointing to LocalStack
 		cfg, err := config.LoadDefaultConfig(ctx,
 			config.WithRegion(awsRegion),
-			config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-				func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-					return aws.Endpoint{
-						URL:               localstackURL,
-						HostnameImmutable: true,
-						SigningRegion:     awsRegion,
-					}, nil
-				},
-			)),
 		)
 		Expect(err).NotTo(HaveOccurred())
 
-		cfnClient = cloudformation.NewFromConfig(cfg)
-		iamClient = iam.NewFromConfig(cfg)
+		// Create service clients with LocalStack endpoint
+		cfnClient = cloudformation.NewFromConfig(cfg, func(o *cloudformation.Options) {
+			o.BaseEndpoint = aws.String(localstackURL)
+		})
+		iamClient = iam.NewFromConfig(cfg, func(o *iam.Options) {
+			o.BaseEndpoint = aws.String(localstackURL)
+		})
 
 		// Create dummy AWS-managed policies for LocalStack
 		createDummyAWSManagedPolicies(ctx, iamClient)

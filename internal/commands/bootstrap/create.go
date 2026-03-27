@@ -50,8 +50,12 @@ Example:
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
 	cmd.Flags().StringVar(&opts.stackName, "stack-name", defaultStackName, "Name of the CloudFormation stack")
 
-	cmd.MarkFlagRequired("image-uri")
-	cmd.MarkFlagRequired("region")
+	if err := cmd.MarkFlagRequired("image-uri"); err != nil {
+		panic(fmt.Sprintf("failed to mark image-uri flag as required: %v", err))
+	}
+	if err := cmd.MarkFlagRequired("region"); err != nil {
+		panic(fmt.Sprintf("failed to mark region flag as required: %v", err))
+	}
 
 	return cmd
 }
