@@ -62,15 +62,7 @@ var _ = Describe("Lambda Handler LocalStack Integration", func() {
 		cfg, err := config.LoadDefaultConfig(ctx,
 			config.WithRegion(awsRegion),
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("test", "test", "")),
-			config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-				func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-					return aws.Endpoint{
-						URL:               localstackURL,
-						HostnameImmutable: true,
-						SigningRegion:     awsRegion,
-					}, nil
-				},
-			)),
+			config.WithBaseEndpoint(localstackURL),
 		)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -256,10 +248,7 @@ var _ = Describe("Lambda Handler LocalStack Integration", func() {
 					StackName: aws.String(stackName),
 				})
 				if err != nil {
-					if strings.Contains(err.Error(), "does not exist") {
-						return true
-					}
-					return false
+					return strings.Contains(err.Error(), "does not exist")
 				}
 				if len(result.Stacks) == 0 {
 					return true
@@ -313,10 +302,7 @@ var _ = Describe("Lambda Handler LocalStack Integration", func() {
 					StackName: aws.String(stackName),
 				})
 				if err != nil {
-					if strings.Contains(err.Error(), "does not exist") {
-						return true
-					}
-					return false
+					return strings.Contains(err.Error(), "does not exist")
 				}
 				if len(result.Stacks) == 0 {
 					return true
