@@ -32,7 +32,7 @@ Example:
 	}
 
 	cmd.Flags().StringVar(&opts.url, "url", "", "Platform API base URL (required)")
-	cmd.MarkFlagRequired("url")
+	_ = cmd.MarkFlagRequired("url")
 
 	return cmd
 }

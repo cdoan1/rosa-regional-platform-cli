@@ -13,20 +13,20 @@ import (
 )
 
 type createOptions struct {
-	clusterName       string
-	region            string
-	targetProjectID   string
-	version           string
-	computeReplicas   int
+	clusterName        string
+	region             string
+	targetProjectID    string
+	version            string
+	computeReplicas    int
 	computeMachineType string
-	placementCluster  string
-	provider          string
-	multiAZ           bool
-	labelEnvironment  string
-	labelTeam         string
-	dryRun            bool
-	outputFile        string
-	payloadFile       string
+	placementCluster   string
+	provider           string
+	multiAZ            bool
+	labelEnvironment   string
+	labelTeam          string
+	dryRun             bool
+	outputFile         string
+	payloadFile        string
 }
 
 func newCreateCommand() *cobra.Command {
