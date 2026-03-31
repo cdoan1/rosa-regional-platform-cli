@@ -46,8 +46,8 @@ Example:
 	cmd.Flags().StringVar(&opts.oidcIssuerURL, "oidc-issuer-url", "", "OIDC issuer URL from Management Cluster (required)")
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
 
-	cmd.MarkFlagRequired("oidc-issuer-url")
-	cmd.MarkFlagRequired("region")
+	_ = cmd.MarkFlagRequired("oidc-issuer-url")
+	_ = cmd.MarkFlagRequired("region")
 
 	return cmd
 }

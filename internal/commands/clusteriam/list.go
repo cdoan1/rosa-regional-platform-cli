@@ -31,7 +31,7 @@ Example:
 
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
 
-	cmd.MarkFlagRequired("region")
+	_ = cmd.MarkFlagRequired("region")
 
 	return cmd
 }

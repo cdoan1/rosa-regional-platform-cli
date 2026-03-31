@@ -34,7 +34,7 @@ Example:
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
 	cmd.Flags().StringVar(&opts.stackName, "stack-name", defaultStackName, "Name of the CloudFormation stack")
 
-	cmd.MarkFlagRequired("region")
+	_ = cmd.MarkFlagRequired("region")
 
 	return cmd
 }
