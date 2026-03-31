@@ -40,7 +40,7 @@ func GetOIDCThumbprint(ctx context.Context, issuerURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to OIDC issuer: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	tlsConn, ok := conn.(*tls.Conn)
 	if !ok {
