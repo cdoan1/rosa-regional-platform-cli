@@ -3,7 +3,6 @@ package login
 import (
 	"fmt"
 	"net/url"
-	"strings"
 
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/config"
 	"github.com/spf13/cobra"
@@ -44,16 +43,30 @@ func runLogin(opts *loginOptions) error {
 		return fmt.Errorf("invalid URL: %w", err)
 	}
 
-	if parsedURL.Scheme == "" {
-		return fmt.Errorf("URL must include a scheme (http:// or https://)")
+	// Enforce http or https scheme
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return fmt.Errorf("URL scheme must be http or https")
 	}
 
 	if parsedURL.Host == "" {
 		return fmt.Errorf("URL must include a host")
 	}
 
-	// Remove trailing slash for consistency
-	baseURL := strings.TrimRight(opts.url, "/")
+	// Reject URLs with path, query, or fragment components
+	if parsedURL.Path != "" && parsedURL.Path != "/" {
+		return fmt.Errorf("URL must not include a path (only scheme://host[:port])")
+	}
+
+	if parsedURL.RawQuery != "" {
+		return fmt.Errorf("URL must not include query parameters (only scheme://host[:port])")
+	}
+
+	if parsedURL.Fragment != "" {
+		return fmt.Errorf("URL must not include a fragment (only scheme://host[:port])")
+	}
+
+	// Build normalized baseURL from components
+	baseURL := parsedURL.Scheme + "://" + parsedURL.Host
 
 	// Save the URL to config
 	if err := config.SetPlatformAPIURL(baseURL); err != nil {

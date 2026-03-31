@@ -91,6 +91,16 @@ func GenerateClusterConfig(ctx context.Context, req *GenerateClusterConfigReques
 	// Merge VPC outputs directly into spec with camelCase keys
 	for key, value := range vpcStack.Outputs {
 		camelKey := toCamelCase(key)
+
+		// Special handling for PrivateSubnetIds - only take the first subnet
+		if key == "PrivateSubnetIds" {
+			subnets := strings.Split(value, ",")
+			if len(subnets) > 0 {
+				spec[camelKey] = strings.TrimSpace(subnets[0])
+			}
+			continue
+		}
+
 		spec[camelKey] = value
 	}
 
