@@ -45,37 +45,37 @@ func newCreateCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "create CLUSTER_NAME",
-		Short: "Create a cluster configuration or submit cluster to platform API",
-		Long: `Create a cluster configuration by gathering IAM and VPC information,
-or submit a cluster configuration to the platform API.
+		Short: "Create a cluster configuration and submit to platform API",
+		Long: `Create a cluster configuration by gathering IAM and VPC information
+from CloudFormation stacks, then submit to the platform API.
 
-Two modes:
-1. --dry-run: Generate cluster configuration from CloudFormation stacks
-2. --payload: POST a cluster configuration file to the platform API
+Three modes:
+1. Default: Generate config from CloudFormation stacks AND submit to platform API
+2. --dry-run: Only generate cluster configuration without submitting
+3. --payload: Only submit an existing cluster configuration file
 
 Examples:
-  # Generate cluster configuration (dry-run mode)
+  # Generate config and create cluster (default)
+  rosactl cluster create my-cluster --region us-east-1
+
+  # Generate config only (dry-run mode)
   rosactl cluster create my-cluster --region us-east-1 --dry-run
   rosactl cluster create my-cluster --region us-east-1 --dry-run --output-file my-cluster.json
 
-  # Submit cluster to platform API (payload mode)
+  # Submit existing payload
   rosactl cluster create my-cluster --region us-east-1 --payload my-cluster.json
   rosactl cluster create my-cluster --region us-east-1 --payload my-cluster.json --placement mgmt-cluster-01`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.clusterName = args[0]
 
-			// Validate mode: must have either --dry-run or --payload
+			// Validate mode: cannot use both --dry-run and --payload
 			if opts.dryRun && opts.payloadFile != "" {
 				return fmt.Errorf("cannot use both --dry-run and --payload flags")
 			}
 
-			if !opts.dryRun && opts.payloadFile == "" {
-				return fmt.Errorf("must specify either --dry-run or --payload flag")
-			}
-
-			// Set default output file if in dry-run mode and not specified
-			if opts.dryRun && opts.outputFile == "" {
+			// Set default output file if not specified (for both default and dry-run modes)
+			if opts.payloadFile == "" && opts.outputFile == "" {
 				opts.outputFile = fmt.Sprintf("%s-cluster.json", opts.clusterName)
 			}
 
@@ -102,12 +102,17 @@ Examples:
 
 func runCreate(ctx context.Context, opts *createOptions) error {
 	if opts.payloadFile != "" {
-		// Payload mode: POST to platform API
+		// Payload mode: POST existing file to platform API
 		return runCreateWithPayload(ctx, opts)
 	}
 
-	// Dry-run mode: Generate configuration from CloudFormation stacks
-	return runCreateDryRun(ctx, opts)
+	if opts.dryRun {
+		// Dry-run mode: Generate configuration only
+		return runCreateDryRun(ctx, opts)
+	}
+
+	// Default mode: Generate configuration AND submit to platform API
+	return runCreateAndSubmit(ctx, opts)
 }
 
 func runCreateDryRun(ctx context.Context, opts *createOptions) error {
@@ -155,6 +160,79 @@ func runCreateDryRun(ctx context.Context, opts *createOptions) error {
 
 	// Print confirmation message to stderr so it doesn't interfere with stdout JSON
 	fmt.Fprintf(os.Stderr, "\n✓ Cluster configuration saved to: %s\n", opts.outputFile)
+
+	return nil
+}
+
+func runCreateAndSubmit(ctx context.Context, opts *createOptions) error {
+	// Load AWS config
+	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(opts.region))
+	if err != nil {
+		return fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	// Build service request to generate cluster config
+	genReq := &clusterservice.GenerateClusterConfigRequest{
+		ClusterName:        opts.clusterName,
+		Region:             opts.region,
+		TargetProjectID:    opts.targetProjectID,
+		Version:            opts.version,
+		ComputeReplicas:    opts.computeReplicas,
+		ComputeMachineType: opts.computeMachineType,
+		PlacementCluster:   opts.placementCluster,
+		Provider:           opts.provider,
+		MultiAZ:            opts.multiAZ,
+		LabelEnvironment:   opts.labelEnvironment,
+		LabelTeam:          opts.labelTeam,
+		AWSConfig:          cfg,
+	}
+
+	// Generate cluster configuration
+	genResp, err := clusterservice.GenerateClusterConfig(ctx, genReq)
+	if err != nil {
+		return err
+	}
+
+	// Convert to JSON and save to file
+	jsonBytes, err := json.MarshalIndent(genResp.ClusterConfig, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal cluster object: %w", err)
+	}
+
+	if err := os.WriteFile(opts.outputFile, jsonBytes, 0644); err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	fmt.Fprintf(os.Stderr, "✓ Cluster configuration saved to: %s\n", opts.outputFile)
+
+	// Get the platform API URL from config
+	baseURL, err := pkgconfig.GetPlatformAPIURL()
+	if err != nil {
+		return err
+	}
+
+	// Submit cluster to platform API
+	submitReq := &clusterservice.SubmitClusterRequest{
+		Payload:        genResp.ClusterConfig,
+		PlatformAPIURL: baseURL,
+		AWSConfig:      cfg,
+	}
+
+	fmt.Fprintf(os.Stderr, "Submitting cluster to platform API...\n")
+
+	submitResp, err := clusterservice.SubmitCluster(ctx, submitReq)
+	if err != nil {
+		return err
+	}
+
+	// Pretty print the JSON response
+	prettyJSON, err := json.MarshalIndent(submitResp.Response, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to format response: %w", err)
+	}
+
+	fmt.Println(string(prettyJSON))
+	fmt.Fprintf(os.Stderr, "\n✓ Cluster created successfully\n")
 
 	return nil
 }
