@@ -150,7 +150,7 @@ lint:
 		echo "Or visit: https://golangci-lint.run/welcome/install/"; \
 		exit 1; \
 	fi
-	@golangci-lint run ./...
+	@golangci-lint run --timeout=5m ./...
 	@echo "✓ golangci-lint passed"
 
 verify: fmt-check vet lint
