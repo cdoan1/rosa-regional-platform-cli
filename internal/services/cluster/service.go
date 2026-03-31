@@ -41,10 +41,10 @@ type GenerateClusterConfigResponse struct {
 
 // SubmitClusterRequest contains parameters for submitting cluster to platform API
 type SubmitClusterRequest struct {
-	Payload          map[string]interface{}
-	PlatformAPIURL   string
+	Payload           map[string]interface{}
+	PlatformAPIURL    string
 	PlacementOverride string // Optional - overrides placement in payload if set
-	AWSConfig        aws.Config
+	AWSConfig         aws.Config
 }
 
 // SubmitClusterResponse contains the API response
@@ -178,7 +178,7 @@ func SubmitCluster(ctx context.Context, req *SubmitClusterRequest) (*SubmitClust
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read the response body
 	body, err := io.ReadAll(resp.Body)
