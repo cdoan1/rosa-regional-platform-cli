@@ -56,15 +56,7 @@ var _ = Describe("rosactl LocalStack Integration", func() {
 		// Create AWS clients pointing to LocalStack
 		cfg, err := config.LoadDefaultConfig(ctx,
 			config.WithRegion(awsRegion),
-			config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(
-				func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-					return aws.Endpoint{
-						URL:               localstackURL,
-						HostnameImmutable: true,
-						SigningRegion:     awsRegion,
-					}, nil
-				},
-			)),
+			config.WithBaseEndpoint(localstackURL),
 		)
 		Expect(err).NotTo(HaveOccurred())
 
