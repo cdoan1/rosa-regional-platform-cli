@@ -250,6 +250,12 @@ func runCreateWithPayload(ctx context.Context, opts *createOptions) error {
 		return fmt.Errorf("invalid JSON in payload file: %w", err)
 	}
 
+	// Override cluster name with CLI argument (CLI arg takes precedence)
+	if currentName, ok := payload["name"].(string); ok && currentName != opts.clusterName {
+		fmt.Fprintf(os.Stderr, "Overriding cluster name: %s → %s\n", currentName, opts.clusterName)
+	}
+	payload["name"] = opts.clusterName
+
 	// Get the platform API URL from config
 	baseURL, err := pkgconfig.GetPlatformAPIURL()
 	if err != nil {

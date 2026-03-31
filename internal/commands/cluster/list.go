@@ -9,7 +9,7 @@ import (
 	"time"
 
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
-	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/config"
 	"github.com/spf13/cobra"
 )
@@ -63,7 +63,7 @@ func runList(ctx context.Context, opts *listOptions) error {
 	}
 
 	// Load AWS config for SigV4 signing
-	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+	cfg, err := aws.NewConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
