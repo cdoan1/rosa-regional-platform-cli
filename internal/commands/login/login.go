@@ -24,7 +24,8 @@ func NewLoginCommand() *cobra.Command {
 This command stores the platform API base URL for future API calls.
 
 Example:
-  rosactl login --url https://api.platform.example.com`,
+  rosactl login --url https://api.platform.example.com
+  rosactl login --url https://api.platform.example.com/prod`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runLogin(opts)
 		},
@@ -52,21 +53,17 @@ func runLogin(opts *loginOptions) error {
 		return fmt.Errorf("URL must include a host")
 	}
 
-	// Reject URLs with path, query, or fragment components
-	if parsedURL.Path != "" && parsedURL.Path != "/" {
-		return fmt.Errorf("URL must not include a path (only scheme://host[:port])")
-	}
-
+	// Reject URLs with query or fragment components
 	if parsedURL.RawQuery != "" {
-		return fmt.Errorf("URL must not include query parameters (only scheme://host[:port])")
+		return fmt.Errorf("URL must not include query parameters")
 	}
 
 	if parsedURL.Fragment != "" {
-		return fmt.Errorf("URL must not include a fragment (only scheme://host[:port])")
+		return fmt.Errorf("URL must not include a fragment")
 	}
 
-	// Build normalized baseURL from components
-	baseURL := parsedURL.Scheme + "://" + parsedURL.Host
+	// Build normalized baseURL from components (including path if present)
+	baseURL := parsedURL.Scheme + "://" + parsedURL.Host + parsedURL.Path
 
 	// Save the URL to config
 	if err := config.SetPlatformAPIURL(baseURL); err != nil {
