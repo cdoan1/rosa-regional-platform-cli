@@ -52,7 +52,15 @@ func runList(ctx context.Context, opts *listOptions) error {
 		return fmt.Errorf("failed to list stacks: %w", err)
 	}
 
-	if len(stacks) == 0 {
+	// Filter IAM stacks
+	var iamStacks []cloudformation.StackInfo
+	for _, stack := range stacks {
+		if strings.HasSuffix(stack.StackName, "-iam") {
+			iamStacks = append(iamStacks, stack)
+		}
+	}
+
+	if len(iamStacks) == 0 {
 		fmt.Println("No cluster IAM stacks found")
 		return nil
 	}
@@ -62,7 +70,7 @@ func runList(ctx context.Context, opts *listOptions) error {
 	fmt.Println(strings.Repeat("-", 70))
 
 	// Print stacks
-	for _, stack := range stacks {
+	for _, stack := range iamStacks {
 		// Extract cluster name from stack name (format: rosa-<cluster-name>-iam)
 		clusterName := extractClusterName(stack.StackName)
 
