@@ -13,7 +13,7 @@ func NewClusterIAMCommand() *cobra.Command {
 
 This command creates the IAM roles required for hosted control plane clusters
 to interact with AWS services. Roles are created before the cluster exists;
-OIDC federation is activated separately via 'rosactl oidc create' once the
+OIDC federation is activated separately via 'rosactl cluster-oidc create' once the
 cluster's issuer URL is known.
 
 The resources are created via CloudFormation stacks (rosa-{cluster-name}-iam).`,

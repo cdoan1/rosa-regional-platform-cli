@@ -36,11 +36,11 @@ OIDC federation:
   configured immediately.
 
   If omitted, roles are created with a placeholder trust policy. Run
-  'rosactl oidc create' after obtaining the issuer URL from cluster creation
+  'rosactl cluster-oidc create' after obtaining the issuer URL from cluster creation
   to activate federation.
 
 Examples:
-  # Roles only (activate federation later with 'rosactl oidc create'):
+  # Roles only (activate federation later with 'rosactl cluster-oidc create'):
   rosactl cluster-iam create my-cluster --region us-east-1
 
   # Roles + OIDC provider in one step (when issuer URL is known upfront):

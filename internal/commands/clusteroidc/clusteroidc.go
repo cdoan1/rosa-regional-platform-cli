@@ -7,7 +7,7 @@ import (
 // NewClusterOIDCCommand creates the oidc command
 func NewClusterOIDCCommand() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "oidc",
+		Use:   "cluster-oidc",
 		Short: "Manage cluster OIDC provider resources",
 		Long: `Manage the IAM OIDC provider for ROSA hosted clusters.
 
@@ -23,7 +23,7 @@ Typical workflow:
   rosactl cluster-iam create my-cluster --region us-east-1
   rosactl cluster-vpc create my-cluster --region us-east-1
   # ... create cluster, obtain OIDC issuer URL ...
-  rosactl oidc create my-cluster --oidc-issuer-url https://... --region us-east-1`,
+  rosactl cluster-oidc create my-cluster --oidc-issuer-url https://... --region us-east-1`,
 	}
 
 	cmd.AddCommand(newCreateCommand())

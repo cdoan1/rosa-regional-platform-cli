@@ -26,7 +26,7 @@ This command deletes the CloudFormation stack containing the OIDC provider
 (rosa-{cluster-name}-oidc). The IAM roles stack is left unchanged.
 
 Example:
-  rosactl oidc delete my-cluster --region us-east-1`,
+  rosactl cluster-oidc delete my-cluster --region us-east-1`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.clusterName = args[0]

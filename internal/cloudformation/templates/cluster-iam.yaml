@@ -11,7 +11,7 @@ Parameters:
   OIDCIssuerDomain:
     Type: String
     Default: PENDING
-    Description: 'OIDC issuer domain without https:// (e.g., d1234.cloudfront.net/my-cluster). Set by rosactl oidc create.'
+    Description: 'OIDC issuer domain without https:// (e.g., d1234.cloudfront.net/my-cluster). Set by rosactl cluster-oidc create.'
     AllowedPattern: '^[^:]+.*'
     ConstraintDescription: 'Must not contain protocol prefix'
 

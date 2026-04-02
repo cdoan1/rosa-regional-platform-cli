@@ -33,7 +33,7 @@ This command:
 The IAM roles stack must already exist (created via 'rosactl cluster-iam create').
 
 Example:
-  rosactl oidc create my-cluster \
+  rosactl cluster-oidc create my-cluster \
     --oidc-issuer-url https://d1234.cloudfront.net/my-cluster \
     --region us-east-1`,
 		Args: cobra.ExactArgs(1),

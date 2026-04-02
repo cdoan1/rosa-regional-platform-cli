@@ -23,7 +23,7 @@ func newListCommand() *cobra.Command {
 		Long: `List all CloudFormation stacks for cluster OIDC providers.
 
 Example:
-  rosactl oidc list --region us-east-1`,
+  rosactl cluster-oidc list --region us-east-1`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runList(cmd.Context(), opts)
 		},
