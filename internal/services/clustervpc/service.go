@@ -35,8 +35,8 @@ type DeleteVPCRequest struct {
 // CreateVPC creates cluster VPC resources via CloudFormation
 func CreateVPC(ctx context.Context, req *CreateVPCRequest) (*CreateVPCResponse, error) {
 	// Validate required parameters
-	if len(req.AvailabilityZones) < 3 {
-		return nil, fmt.Errorf("at least 3 availability zones are required")
+	if len(req.AvailabilityZones) < 1 {
+		return nil, fmt.Errorf("at least 1 availability zone is required")
 	}
 
 	// Read CloudFormation template
@@ -78,10 +78,13 @@ func CreateVPC(ctx context.Context, req *CreateVPCRequest) (*CreateVPCResponse, 
 	if len(req.PrivateSubnetCidrs) > 2 {
 		params["PrivateSubnetCidr3"] = req.PrivateSubnetCidrs[2]
 	}
-	// AZs are required (3 zones for HA)
 	params["AvailabilityZone1"] = req.AvailabilityZones[0]
-	params["AvailabilityZone2"] = req.AvailabilityZones[1]
-	params["AvailabilityZone3"] = req.AvailabilityZones[2]
+	if len(req.AvailabilityZones) > 1 {
+		params["AvailabilityZone2"] = req.AvailabilityZones[1]
+	}
+	if len(req.AvailabilityZones) > 2 {
+		params["AvailabilityZone3"] = req.AvailabilityZones[2]
+	}
 
 	createParams := &cloudformation.CreateStackParams{
 		StackName:    stackName,
@@ -150,10 +153,13 @@ func updateVPC(ctx context.Context, cfnClient *cloudformation.Client, req *Creat
 	if len(req.PrivateSubnetCidrs) > 2 {
 		params["PrivateSubnetCidr3"] = req.PrivateSubnetCidrs[2]
 	}
-	// AZs are required (3 zones for HA)
 	params["AvailabilityZone1"] = req.AvailabilityZones[0]
-	params["AvailabilityZone2"] = req.AvailabilityZones[1]
-	params["AvailabilityZone3"] = req.AvailabilityZones[2]
+	if len(req.AvailabilityZones) > 1 {
+		params["AvailabilityZone2"] = req.AvailabilityZones[1]
+	}
+	if len(req.AvailabilityZones) > 2 {
+		params["AvailabilityZone3"] = req.AvailabilityZones[2]
+	}
 
 	updateParams := &cloudformation.UpdateStackParams{
 		StackName:    stackName,
