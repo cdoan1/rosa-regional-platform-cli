@@ -28,6 +28,7 @@ Typical workflow:
 
 	cmd.AddCommand(newCreateCommand())
 	cmd.AddCommand(newDeleteCommand())
+	cmd.AddCommand(newListCommand())
 
 	return cmd
 }
