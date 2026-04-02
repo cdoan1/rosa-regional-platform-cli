@@ -6,6 +6,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/crypto"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/services/clusteriam"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/services/clustervpc"
 )
@@ -55,11 +56,17 @@ func applyClusterIAM(ctx context.Context, event Event) (Response, error) {
 	if event.ClusterName == "" {
 		return Response{}, fmt.Errorf("cluster_name is required")
 	}
-	if event.OIDCIssuerURL == "" {
-		return Response{}, fmt.Errorf("oidc_issuer_url is required")
-	}
-
 	fmt.Println("Applying cluster IAM CloudFormation template...")
+
+	// Derive OIDC issuer domain if URL is provided
+	var oidcIssuerDomain string
+	if event.OIDCIssuerURL != "" {
+		var err error
+		oidcIssuerDomain, err = crypto.GetOIDCIssuerDomain(event.OIDCIssuerURL)
+		if err != nil {
+			return Response{}, fmt.Errorf("failed to parse oidc_issuer_url: %w", err)
+		}
+	}
 
 	// Load AWS config
 	cfg, err := config.LoadDefaultConfig(ctx)
@@ -69,10 +76,9 @@ func applyClusterIAM(ctx context.Context, event Event) (Response, error) {
 
 	// Call service layer
 	result, err := clusteriam.CreateIAM(ctx, &clusteriam.CreateIAMRequest{
-		ClusterName:    event.ClusterName,
-		OIDCIssuerURL:  event.OIDCIssuerURL,
-		OIDCThumbprint: event.OIDCThumbprint,
-		AWSConfig:      cfg,
+		ClusterName:      event.ClusterName,
+		OIDCIssuerDomain: oidcIssuerDomain,
+		AWSConfig:        cfg,
 	})
 	if err != nil {
 		return Response{}, fmt.Errorf("failed to create IAM: %w", err)

@@ -64,8 +64,13 @@ func (c *Client) CreateStack(ctx context.Context, params *CreateStackParams) (*S
 func (c *Client) UpdateStack(ctx context.Context, params *UpdateStackParams) (*StackOutput, error) {
 	input := &cloudformation.UpdateStackInput{
 		StackName:    aws.String(params.StackName),
-		TemplateBody: aws.String(params.TemplateBody),
 		Capabilities: params.Capabilities,
+	}
+
+	if params.UsePreviousTemplate {
+		input.UsePreviousTemplate = aws.Bool(true)
+	} else {
+		input.TemplateBody = aws.String(params.TemplateBody)
 	}
 
 	if len(params.Parameters) > 0 {

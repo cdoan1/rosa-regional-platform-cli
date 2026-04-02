@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ROSA Regional Platform - Cluster OIDC Provider'
+
+Parameters:
+  ClusterName:
+    Type: String
+    Description: 'Name of the hosted cluster'
+    AllowedPattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
+    ConstraintDescription: 'Must be lowercase alphanumeric with hyphens'
+
+  OIDCIssuerURL:
+    Type: String
+    Description: 'OIDC issuer URL from Management Cluster (e.g., https://d1234.cloudfront.net/my-cluster)'
+    AllowedPattern: '^https://.*'
+    ConstraintDescription: 'Must start with https://'
+
+  OIDCThumbprint:
+    Type: String
+    Description: 'TLS certificate thumbprint of the OIDC issuer (SHA-1 fingerprint)'
+    AllowedPattern: '^[a-f0-9]{40}$'
+    ConstraintDescription: 'Must be a 40-character hex string'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: 'Cluster Configuration'
+        Parameters:
+          - ClusterName
+      - Label:
+          default: 'OIDC Configuration'
+        Parameters:
+          - OIDCIssuerURL
+          - OIDCThumbprint
+
+Resources:
+  OIDCProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: !Ref OIDCIssuerURL
+      ClientIdList:
+        - openshift
+      ThumbprintList:
+        - !Ref OIDCThumbprint
+      Tags:
+        - Key: Cluster
+          Value: !Ref ClusterName
+        - Key: ManagedBy
+          Value: rosactl
+        - Key: red-hat-managed
+          Value: 'true'
+
+Outputs:
+  OIDCProviderArn:
+    Description: 'ARN of the IAM OIDC provider'
+    Value: !GetAtt OIDCProvider.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-OIDCProviderArn'
+
+  OIDCProviderURL:
+    Description: 'URL of the IAM OIDC provider'
+    Value: !Ref OIDCIssuerURL
+    Export:
+      Name: !Sub '${AWS::StackName}-OIDCProviderURL'

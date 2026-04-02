@@ -8,14 +8,15 @@ import (
 func NewClusterIAMCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cluster-iam",
-		Short: "Manage cluster IAM resources (OIDC provider + roles)",
-		Long: `Manage IAM resources for ROSA hosted clusters.
+		Short: "Manage cluster IAM roles",
+		Long: `Manage IAM roles for ROSA hosted clusters.
 
-This command creates IAM OIDC providers and roles required for hosted control
-plane clusters to interact with AWS services.
+This command creates the IAM roles required for hosted control plane clusters
+to interact with AWS services. Roles are created before the cluster exists;
+OIDC federation is activated separately via 'rosactl oidc create' once the
+cluster's issuer URL is known.
 
-The resources are created via CloudFormation stacks. Lambda bootstrap is optional
-and no longer required for basic operations.`,
+The resources are created via CloudFormation stacks (rosa-{cluster-name}-iam).`,
 	}
 
 	cmd.AddCommand(newCreateCommand())

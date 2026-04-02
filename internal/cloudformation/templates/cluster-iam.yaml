@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'ROSA Regional Platform - Cluster IAM Resources (OIDC Provider + Roles)'
+Description: 'ROSA Regional Platform - Cluster IAM Roles'
 
 Parameters:
   ClusterName:
@@ -8,23 +8,12 @@ Parameters:
     AllowedPattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$'
     ConstraintDescription: 'Must be lowercase alphanumeric with hyphens'
 
-  OIDCIssuerURL:
-    Type: String
-    Description: 'OIDC issuer URL from Management Cluster (e.g., https://d1234.cloudfront.net/my-cluster)'
-    AllowedPattern: '^https://.*'
-    ConstraintDescription: 'Must start with https://'
-
   OIDCIssuerDomain:
     Type: String
-    Description: 'OIDC issuer domain without https:// (e.g., d1234.cloudfront.net/my-cluster)'
+    Default: PENDING
+    Description: 'OIDC issuer domain without https:// (e.g., d1234.cloudfront.net/my-cluster). Set by rosactl oidc create.'
     AllowedPattern: '^[^:]+.*'
     ConstraintDescription: 'Must not contain protocol prefix'
-
-  OIDCThumbprint:
-    Type: String
-    Description: 'TLS certificate thumbprint of the OIDC issuer (SHA-1 fingerprint)'
-    AllowedPattern: '^[a-f0-9]{40}$'
-    ConstraintDescription: 'Must be a 40-character hex string'
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -36,28 +25,9 @@ Metadata:
       - Label:
           default: 'OIDC Configuration'
         Parameters:
-          - OIDCIssuerURL
           - OIDCIssuerDomain
-          - OIDCThumbprint
 
 Resources:
-  # IAM OIDC Provider
-  OIDCProvider:
-    Type: AWS::IAM::OIDCProvider
-    Properties:
-      Url: !Ref OIDCIssuerURL
-      ClientIdList:
-        - openshift
-      ThumbprintList:
-        - !Ref OIDCThumbprint
-      Tags:
-        - Key: Cluster
-          Value: !Ref ClusterName
-        - Key: ManagedBy
-          Value: rosactl
-        - Key: red-hat-managed
-          Value: 'true'
-
   # Ingress Operator Role
   IngressRole:
     Type: AWS::IAM::Role
@@ -72,7 +42,7 @@ Resources:
               "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                  "Federated": "${OIDCProviderArn}"
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerDomain}"
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
@@ -83,8 +53,7 @@ Resources:
                 }
               }]
             }
-          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
-            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+          - OIDCIssuerDomain: !Ref OIDCIssuerDomain
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/ROSAIngressOperatorPolicy
       Tags:
@@ -109,7 +78,7 @@ Resources:
               "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                  "Federated": "${OIDCProviderArn}"
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerDomain}"
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
@@ -120,8 +89,7 @@ Resources:
                 }
               }]
             }
-          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
-            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+          - OIDCIssuerDomain: !Ref OIDCIssuerDomain
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/ROSAKubeControllerPolicy
       Tags:
@@ -146,7 +114,7 @@ Resources:
               "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                  "Federated": "${OIDCProviderArn}"
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerDomain}"
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
@@ -157,8 +125,7 @@ Resources:
                 }
               }]
             }
-          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
-            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+          - OIDCIssuerDomain: !Ref OIDCIssuerDomain
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/ROSAAmazonEBSCSIDriverOperatorPolicy
       Tags:
@@ -183,7 +150,7 @@ Resources:
               "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                  "Federated": "${OIDCProviderArn}"
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerDomain}"
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
@@ -194,8 +161,7 @@ Resources:
                 }
               }]
             }
-          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
-            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+          - OIDCIssuerDomain: !Ref OIDCIssuerDomain
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/ROSAImageRegistryOperatorPolicy
       Tags:
@@ -220,7 +186,7 @@ Resources:
               "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                  "Federated": "${OIDCProviderArn}"
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerDomain}"
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
@@ -231,8 +197,7 @@ Resources:
                 }
               }]
             }
-          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
-            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+          - OIDCIssuerDomain: !Ref OIDCIssuerDomain
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/ROSACloudNetworkConfigOperatorPolicy
       Tags:
@@ -257,7 +222,7 @@ Resources:
               "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                  "Federated": "${OIDCProviderArn}"
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerDomain}"
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
@@ -268,8 +233,7 @@ Resources:
                 }
               }]
             }
-          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
-            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+          - OIDCIssuerDomain: !Ref OIDCIssuerDomain
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/ROSAControlPlaneOperatorPolicy
       Policies:
@@ -311,7 +275,7 @@ Resources:
               "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                  "Federated": "${OIDCProviderArn}"
+                  "Federated": "arn:aws:iam::${AWS::AccountId}:oidc-provider/${OIDCIssuerDomain}"
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
@@ -322,8 +286,7 @@ Resources:
                 }
               }]
             }
-          - OIDCProviderArn: !GetAtt OIDCProvider.Arn
-            OIDCIssuerDomain: !Ref OIDCIssuerDomain
+          - OIDCIssuerDomain: !Ref OIDCIssuerDomain
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/ROSANodePoolManagementPolicy
       Policies:
@@ -377,18 +340,6 @@ Resources:
         - !Ref WorkerNodeRole
 
 Outputs:
-  OIDCProviderArn:
-    Description: 'ARN of the IAM OIDC provider'
-    Value: !GetAtt OIDCProvider.Arn
-    Export:
-      Name: !Sub '${AWS::StackName}-OIDCProviderArn'
-
-  OIDCProviderURL:
-    Description: 'URL of the IAM OIDC provider'
-    Value: !Ref OIDCIssuerURL
-    Export:
-      Name: !Sub '${AWS::StackName}-OIDCProviderURL'
-
   IngressRoleArn:
     Description: 'IAM role ARN for the Ingress Operator'
     Value: !GetAtt IngressRole.Arn

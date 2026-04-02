@@ -18,11 +18,12 @@ type CreateStackParams struct {
 
 // UpdateStackParams contains parameters for updating a CloudFormation stack
 type UpdateStackParams struct {
-	StackName    string
-	TemplateBody string
-	Parameters   map[string]string
-	Capabilities []types.Capability
-	WaitTimeout  time.Duration
+	StackName           string
+	TemplateBody        string
+	UsePreviousTemplate bool // if true, TemplateBody is ignored and the existing template is reused
+	Parameters          map[string]string
+	Capabilities        []types.Capability
+	WaitTimeout         time.Duration
 }
 
 // StackOutput contains the outputs from a CloudFormation stack
