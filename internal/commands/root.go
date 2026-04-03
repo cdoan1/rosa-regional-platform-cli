@@ -7,6 +7,7 @@ import (
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/bootstrap"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/cluster"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/clusteriam"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/clusteroidc"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/clustervpc"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/handler"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/commands/login"
@@ -38,6 +39,7 @@ func init() {
 	rootCmd.AddCommand(bootstrap.NewBootstrapCommand())
 	rootCmd.AddCommand(cluster.NewClusterCommand())
 	rootCmd.AddCommand(clusteriam.NewClusterIAMCommand())
+	rootCmd.AddCommand(clusteroidc.NewClusterOIDCCommand())
 	rootCmd.AddCommand(clustervpc.NewClusterVPCCommand())
 	rootCmd.AddCommand(handler.NewHandlerCommand())
 	rootCmd.AddCommand(login.NewLoginCommand())

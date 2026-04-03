@@ -4,21 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/cloudformation/types"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/aws/cloudformation"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/cloudformation/templates"
-	"github.com/openshift-online/rosa-regional-platform-cli/internal/crypto"
 )
 
 type CreateIAMRequest struct {
-	ClusterName    string
-	OIDCIssuerURL  string
-	OIDCThumbprint string // Optional - will be fetched if not provided
-	AWSConfig      aws.Config
+	ClusterName      string
+	OIDCIssuerDomain string // optional — empty uses template default PENDING
+	AWSConfig        aws.Config
 }
 
 type CreateIAMResponse struct {
@@ -33,27 +30,6 @@ type DeleteIAMRequest struct {
 
 // CreateIAM creates cluster IAM resources via CloudFormation
 func CreateIAM(ctx context.Context, req *CreateIAMRequest) (*CreateIAMResponse, error) {
-	// Validate OIDC issuer URL
-	if !strings.HasPrefix(req.OIDCIssuerURL, "https://") {
-		return nil, fmt.Errorf("OIDC issuer URL must start with https://")
-	}
-
-	// Fetch TLS thumbprint if not provided
-	thumbprint := req.OIDCThumbprint
-	if thumbprint == "" {
-		var err error
-		thumbprint, err = crypto.GetOIDCThumbprint(ctx, req.OIDCIssuerURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to fetch TLS thumbprint: %w", err)
-		}
-	}
-
-	// Derive OIDC issuer domain
-	oidcIssuerDomain, err := crypto.GetOIDCIssuerDomain(req.OIDCIssuerURL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse OIDC issuer URL: %w", err)
-	}
-
 	// Read CloudFormation template
 	templateBody, err := templates.Read("cluster-iam.yaml")
 	if err != nil {
@@ -68,12 +44,7 @@ func CreateIAM(ctx context.Context, req *CreateIAMRequest) (*CreateIAMResponse, 
 	params := &cloudformation.CreateStackParams{
 		StackName:    stackName,
 		TemplateBody: templateBody,
-		Parameters: map[string]string{
-			"ClusterName":      req.ClusterName,
-			"OIDCIssuerURL":    req.OIDCIssuerURL,
-			"OIDCIssuerDomain": oidcIssuerDomain,
-			"OIDCThumbprint":   thumbprint,
-		},
+		Parameters:   map[string]string{"ClusterName": req.ClusterName},
 		Capabilities: []types.Capability{
 			types.CapabilityCapabilityIam,
 			types.CapabilityCapabilityNamedIam,
@@ -95,13 +66,18 @@ func CreateIAM(ctx context.Context, req *CreateIAMRequest) (*CreateIAMResponse, 
 		WaitTimeout: 15 * time.Minute,
 	}
 
+	// Only pass OIDCIssuerDomain if provided — otherwise let the template default (PENDING) apply
+	if req.OIDCIssuerDomain != "" {
+		params.Parameters["OIDCIssuerDomain"] = req.OIDCIssuerDomain
+	}
+
 	// Create stack
 	output, err := cfnClient.CreateStack(ctx, params)
 	if err != nil {
 		// Check if stack already exists, try update instead
 		var alreadyExistsErr *cloudformation.StackAlreadyExistsError
 		if errors.As(err, &alreadyExistsErr) {
-			return updateIAM(ctx, cfnClient, req, stackName, templateBody, oidcIssuerDomain, thumbprint)
+			return updateIAM(ctx, cfnClient, req, stackName, templateBody)
 		}
 		return nil, fmt.Errorf("failed to create stack: %w", err)
 	}
@@ -112,21 +88,20 @@ func CreateIAM(ctx context.Context, req *CreateIAMRequest) (*CreateIAMResponse, 
 	}, nil
 }
 
-func updateIAM(ctx context.Context, cfnClient *cloudformation.Client, req *CreateIAMRequest, stackName, templateBody, oidcIssuerDomain, thumbprint string) (*CreateIAMResponse, error) {
+func updateIAM(ctx context.Context, cfnClient *cloudformation.Client, req *CreateIAMRequest, stackName, templateBody string) (*CreateIAMResponse, error) {
 	params := &cloudformation.UpdateStackParams{
 		StackName:    stackName,
 		TemplateBody: templateBody,
-		Parameters: map[string]string{
-			"ClusterName":      req.ClusterName,
-			"OIDCIssuerURL":    req.OIDCIssuerURL,
-			"OIDCIssuerDomain": oidcIssuerDomain,
-			"OIDCThumbprint":   thumbprint,
-		},
+		Parameters:   map[string]string{"ClusterName": req.ClusterName},
 		Capabilities: []types.Capability{
 			types.CapabilityCapabilityIam,
 			types.CapabilityCapabilityNamedIam,
 		},
 		WaitTimeout: 15 * time.Minute,
+	}
+
+	if req.OIDCIssuerDomain != "" {
+		params.Parameters["OIDCIssuerDomain"] = req.OIDCIssuerDomain
 	}
 
 	output, err := cfnClient.UpdateStack(ctx, params)

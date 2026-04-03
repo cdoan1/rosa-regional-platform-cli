@@ -8,6 +8,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/crypto"
 	"github.com/openshift-online/rosa-regional-platform-cli/internal/services/clusteriam"
+	"github.com/openshift-online/rosa-regional-platform-cli/internal/services/clusteroidc"
 	"github.com/spf13/cobra"
 )
 
@@ -22,17 +23,27 @@ func newCreateCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "create CLUSTER_NAME",
-		Short: "Create cluster IAM resources",
-		Long: `Create IAM OIDC provider and roles for a hosted cluster.
+		Short: "Create cluster IAM roles",
+		Long: `Create IAM roles for a hosted cluster.
 
-This command:
-1. Fetches the TLS thumbprint from the OIDC issuer URL
-2. Creates a CloudFormation stack with the following resources:
-   - IAM OIDC Provider
-   - 7 control plane IAM roles (ingress, cloud-controller-manager, ebs-csi, etc.)
-   - Worker node IAM role and instance profile
+This command creates a CloudFormation stack with the following resources:
+  - 7 control plane IAM roles (ingress, cloud-controller-manager, ebs-csi, etc.)
+  - Worker node IAM role and instance profile
 
-Example:
+OIDC federation:
+  If --oidc-issuer-url is provided, the OIDC provider is also created in a
+  separate stack (rosa-{cluster-name}-oidc) and IAM trust policies are
+  configured immediately.
+
+  If omitted, roles are created with a placeholder trust policy. Run
+  'rosactl cluster-oidc create' after obtaining the issuer URL from cluster creation
+  to activate federation.
+
+Examples:
+  # Roles only (activate federation later with 'rosactl cluster-oidc create'):
+  rosactl cluster-iam create my-cluster --region us-east-1
+
+  # Roles + OIDC provider in one step (when issuer URL is known upfront):
   rosactl cluster-iam create my-cluster \
     --oidc-issuer-url https://d1234.cloudfront.net/my-cluster \
     --region us-east-1`,
@@ -43,10 +54,9 @@ Example:
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.oidcIssuerURL, "oidc-issuer-url", "", "OIDC issuer URL from Management Cluster (required)")
+	cmd.Flags().StringVar(&opts.oidcIssuerURL, "oidc-issuer-url", "", "OIDC issuer URL (optional — also creates OIDC provider if provided)")
 	cmd.Flags().StringVar(&opts.region, "region", "", "AWS region (required)")
 
-	_ = cmd.MarkFlagRequired("oidc-issuer-url")
 	_ = cmd.MarkFlagRequired("region")
 
 	return cmd
@@ -58,24 +68,25 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 		return err
 	}
 
-	// Validate OIDC issuer URL
-	if !strings.HasPrefix(opts.oidcIssuerURL, "https://") {
-		return fmt.Errorf("OIDC issuer URL must start with https://")
+	// Derive OIDC issuer domain if URL was provided
+	var oidcIssuerDomain string
+	if opts.oidcIssuerURL != "" {
+		if !strings.HasPrefix(opts.oidcIssuerURL, "https://") {
+			return fmt.Errorf("OIDC issuer URL must start with https://")
+		}
+		var err error
+		oidcIssuerDomain, err = crypto.GetOIDCIssuerDomain(opts.oidcIssuerURL)
+		if err != nil {
+			return fmt.Errorf("failed to parse OIDC issuer URL: %w", err)
+		}
 	}
 
-	fmt.Println("🔐 Creating cluster IAM resources...")
+	fmt.Println("Creating cluster IAM roles...")
 	fmt.Printf("   Cluster: %s\n", opts.clusterName)
-	fmt.Printf("   OIDC Issuer: %s\n", opts.oidcIssuerURL)
 	fmt.Printf("   Region: %s\n", opts.region)
-	fmt.Println()
-
-	// Fetch TLS thumbprint
-	fmt.Println("🔍 Fetching TLS thumbprint from OIDC issuer...")
-	thumbprint, err := crypto.GetOIDCThumbprint(ctx, opts.oidcIssuerURL)
-	if err != nil {
-		return fmt.Errorf("failed to fetch TLS thumbprint: %w", err)
+	if oidcIssuerDomain != "" {
+		fmt.Printf("   OIDC Issuer: %s\n", opts.oidcIssuerURL)
 	}
-	fmt.Printf("   Thumbprint: %s\n", thumbprint)
 	fmt.Println()
 
 	// Load AWS config
@@ -84,26 +95,23 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 		return fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	// Create service request
-	req := &clusteriam.CreateIAMRequest{
-		ClusterName:    opts.clusterName,
-		OIDCIssuerURL:  opts.oidcIssuerURL,
-		OIDCThumbprint: thumbprint,
-		AWSConfig:      cfg,
+	// Create IAM stack
+	iamReq := &clusteriam.CreateIAMRequest{
+		ClusterName:      opts.clusterName,
+		OIDCIssuerDomain: oidcIssuerDomain,
+		AWSConfig:        cfg,
 	}
 
-	fmt.Println("📄 Preparing IAM CloudFormation operation...")
-	fmt.Printf("☁️  Creating or updating CloudFormation stack: rosa-%s-iam\n", opts.clusterName)
+	fmt.Printf("Creating or updating CloudFormation stack: rosa-%s-iam\n", opts.clusterName)
 	fmt.Println("   This may take several minutes...")
 	fmt.Println()
 
-	// Call service layer
-	resp, err := clusteriam.CreateIAM(ctx, req)
+	resp, err := clusteriam.CreateIAM(ctx, iamReq)
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("✅ Cluster IAM resources created successfully!")
+	fmt.Println("Cluster IAM roles created successfully!")
 	fmt.Printf("   Stack ID: %s\n", resp.StackID)
 	fmt.Println()
 
@@ -111,6 +119,39 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 		fmt.Println("Created Resources:")
 		for key, value := range resp.Outputs {
 			fmt.Printf("  %s: %s\n", key, value)
+		}
+	}
+
+	// If OIDC issuer URL was provided, also create the OIDC provider stack
+	if opts.oidcIssuerURL != "" {
+		fmt.Println()
+		fmt.Println("OIDC issuer URL provided — also creating OIDC provider...")
+		fmt.Println()
+
+		oidcReq := &clusteroidc.CreateOIDCRequest{
+			ClusterName:   opts.clusterName,
+			OIDCIssuerURL: opts.oidcIssuerURL,
+			AWSConfig:     cfg,
+		}
+
+		fmt.Printf("Creating CloudFormation stack: rosa-%s-oidc\n", opts.clusterName)
+		fmt.Println("   This may take a few minutes...")
+		fmt.Println()
+
+		oidcResp, err := clusteroidc.CreateOIDC(ctx, oidcReq)
+		if err != nil {
+			return fmt.Errorf("IAM roles created but OIDC provider failed: %w", err)
+		}
+
+		fmt.Println("Cluster OIDC provider created successfully!")
+		fmt.Printf("   Stack ID: %s\n", oidcResp.StackID)
+		fmt.Println()
+
+		if len(oidcResp.Outputs) > 0 {
+			fmt.Println("OIDC Resources:")
+			for key, value := range oidcResp.Outputs {
+				fmt.Printf("  %s: %s\n", key, value)
+			}
 		}
 	}
 
