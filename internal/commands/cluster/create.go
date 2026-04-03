@@ -36,7 +36,7 @@ func newCreateCommand() *cobra.Command {
 		version:            "4.14",
 		computeReplicas:    3,
 		computeMachineType: "m5.xlarge",
-		placementCluster:   "mc01",
+		placementCluster:   "",
 		provider:           "aws",
 		multiAZ:            true,
 		labelEnvironment:   "dev",
