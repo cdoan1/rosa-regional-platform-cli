@@ -74,8 +74,8 @@ Examples:
 				return fmt.Errorf("cannot use both --dry-run and --payload flags")
 			}
 
-			// Set default output file if not specified (for both default and dry-run modes)
-			if opts.payloadFile == "" && opts.outputFile == "" {
+			// Set default output file only in dry-run mode
+			if opts.dryRun && opts.payloadFile == "" && opts.outputFile == "" {
 				opts.outputFile = fmt.Sprintf("%s-cluster.json", opts.clusterName)
 			}
 
@@ -94,7 +94,7 @@ Examples:
 	cmd.Flags().StringVar(&opts.labelEnvironment, "label-environment", opts.labelEnvironment, "Environment label (dry-run mode only)")
 	cmd.Flags().StringVar(&opts.labelTeam, "label-team", opts.labelTeam, "Team label (dry-run mode only)")
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Generate cluster configuration without submitting to API")
-	cmd.Flags().StringVar(&opts.outputFile, "output-file", "", "Output file for cluster configuration (dry-run mode, default: <cluster-name>-cluster.json)")
+	cmd.Flags().StringVar(&opts.outputFile, "output-file", "", "Output file for cluster configuration (default in dry-run: <cluster-name>-cluster.json)")
 	cmd.Flags().StringVar(&opts.payloadFile, "payload", "", "JSON payload file to POST to platform API")
 
 	return cmd
@@ -113,6 +113,44 @@ func runCreate(ctx context.Context, opts *createOptions) error {
 
 	// Default mode: Generate configuration AND submit to platform API
 	return runCreateAndSubmit(ctx, opts)
+}
+
+func printClusterSummary(response map[string]interface{}) {
+	// Extract key fields from the response
+	name := getStringField(response, "name")
+	id := getStringField(response, "id")
+	version := getStringField(response, "version")
+
+	// Get cloudUrl from spec
+	cloudURL := ""
+	if spec, ok := response["spec"].(map[string]interface{}); ok {
+		cloudURL = getStringField(spec, "cloudUrl")
+	}
+
+	// Print summary
+	fmt.Println("\n✓ Cluster created successfully")
+	fmt.Printf("\nCluster Details:\n")
+	if name != "" {
+		fmt.Printf("  Name:      %s\n", name)
+	}
+	if id != "" {
+		fmt.Printf("  ID:        %s\n", id)
+	}
+	if version != "" {
+		fmt.Printf("  Version:   %s\n", version)
+	}
+	if cloudURL != "" {
+		fmt.Printf("  Cloud URL: %s\n", cloudURL)
+	}
+}
+
+func getStringField(m map[string]interface{}, key string) string {
+	if val, ok := m[key]; ok {
+		if strVal, ok := val.(string); ok {
+			return strVal
+		}
+	}
+	return ""
 }
 
 func runCreateDryRun(ctx context.Context, opts *createOptions) error {
@@ -193,17 +231,19 @@ func runCreateAndSubmit(ctx context.Context, opts *createOptions) error {
 		return err
 	}
 
-	// Convert to JSON and save to file
-	jsonBytes, err := json.MarshalIndent(genResp.ClusterConfig, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal cluster object: %w", err)
-	}
+	// Optionally save to file if output file was explicitly specified
+	if opts.outputFile != "" {
+		jsonBytes, err := json.MarshalIndent(genResp.ClusterConfig, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal cluster object: %w", err)
+		}
 
-	if err := os.WriteFile(opts.outputFile, jsonBytes, 0644); err != nil {
-		return fmt.Errorf("failed to write output file: %w", err)
-	}
+		if err := os.WriteFile(opts.outputFile, jsonBytes, 0644); err != nil {
+			return fmt.Errorf("failed to write output file: %w", err)
+		}
 
-	fmt.Fprintf(os.Stderr, "✓ Cluster configuration saved to: %s\n", opts.outputFile)
+		fmt.Fprintf(os.Stderr, "✓ Cluster configuration saved to: %s\n", opts.outputFile)
+	}
 
 	// Get the platform API URL from config
 	baseURL, err := pkgconfig.GetPlatformAPIURL()
@@ -225,14 +265,8 @@ func runCreateAndSubmit(ctx context.Context, opts *createOptions) error {
 		return err
 	}
 
-	// Pretty print the JSON response
-	prettyJSON, err := json.MarshalIndent(submitResp.Response, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to format response: %w", err)
-	}
-
-	fmt.Println(string(prettyJSON))
-	fmt.Fprintf(os.Stderr, "\n✓ Cluster created successfully\n")
+	// Extract and display key fields from response
+	printClusterSummary(submitResp.Response)
 
 	return nil
 }
@@ -294,14 +328,8 @@ func runCreateWithPayload(ctx context.Context, opts *createOptions) error {
 		return err
 	}
 
-	// Pretty print the JSON response
-	prettyJSON, err := json.MarshalIndent(resp.Response, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to format response: %w", err)
-	}
-
-	fmt.Println(string(prettyJSON))
-	fmt.Fprintf(os.Stderr, "\n✓ Cluster created successfully\n")
+	// Extract and display key fields from response
+	printClusterSummary(resp.Response)
 
 	return nil
 }
