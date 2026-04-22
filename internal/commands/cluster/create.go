@@ -27,6 +27,7 @@ type createOptions struct {
 	dryRun             bool
 	outputFile         string
 	payloadFile        string
+	output             string
 }
 
 func newCreateCommand() *cobra.Command {
@@ -96,6 +97,7 @@ Examples:
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "Generate cluster configuration without submitting to API")
 	cmd.Flags().StringVar(&opts.outputFile, "output-file", "", "Output file for cluster configuration (default in dry-run: <cluster-name>-cluster.json)")
 	cmd.Flags().StringVar(&opts.payloadFile, "payload", "", "JSON payload file to POST to platform API")
+	cmd.Flags().StringVar(&opts.output, "output", "", "Output format (json)")
 
 	return cmd
 }
@@ -258,15 +260,26 @@ func runCreateAndSubmit(ctx context.Context, opts *createOptions) error {
 		AWSConfig:      cfg,
 	}
 
-	fmt.Fprintf(os.Stderr, "Submitting cluster to platform API...\n")
+	if opts.output != "json" {
+		fmt.Fprintf(os.Stderr, "Submitting cluster to platform API...\n")
+	}
 
 	submitResp, err := clusterservice.SubmitCluster(ctx, submitReq)
 	if err != nil {
 		return err
 	}
 
-	// Extract and display key fields from response
-	printClusterSummary(submitResp.Response)
+	// Output response based on format
+	if opts.output == "json" {
+		jsonBytes, err := json.MarshalIndent(submitResp.Response, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal response: %w", err)
+		}
+		fmt.Println(string(jsonBytes))
+	} else {
+		// Extract and display key fields from response
+		printClusterSummary(submitResp.Response)
+	}
 
 	return nil
 }
@@ -328,8 +341,17 @@ func runCreateWithPayload(ctx context.Context, opts *createOptions) error {
 		return err
 	}
 
-	// Extract and display key fields from response
-	printClusterSummary(resp.Response)
+	// Output response based on format
+	if opts.output == "json" {
+		jsonBytes, err := json.MarshalIndent(resp.Response, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal response: %w", err)
+		}
+		fmt.Println(string(jsonBytes))
+	} else {
+		// Extract and display key fields from response
+		printClusterSummary(resp.Response)
+	}
 
 	return nil
 }
